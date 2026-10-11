@@ -1,6 +1,21 @@
-.ts-wf-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Screen-reader-only live region; the visible stats are decorative. */
+.ts-wf-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
-.ts-wf-bar-cell { width: 40%; }
+.ts-wf-caption {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
 
 .ts-wf-bar {
   height: 8px;
@@ -9,4 +24,14 @@
   overflow: hidden;
 }
 
-.ts-wf-bar-fill { height: 100%; background: var(--accent-strong); }
+.ts-wf-bar-fill {
+  height: 100%;
+  background: var(--accent-strong);
+  transition: width 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ts-wf-bar-fill {
+    transition: none;
+  }
+}
