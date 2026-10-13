@@ -1,0 +1,13 @@
+/* Screen-reader-only status line; the visible panels carry the same answer. */
+.ts-cidr-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
