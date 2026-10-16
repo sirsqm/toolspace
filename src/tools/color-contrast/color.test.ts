@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestTextColor, ColorError, composite, contrastRatio, hslToRgb, mix, parseColor, relativeLuminance, report, suggestForeground, toHex, toHsl, toHslString, toRgbString, wcagLevel } from './color'
+import { bestTextColor, ColorError, composite, contrastRatio, flattenPair, hslToRgb, mix, parseColor, peakContrast, relativeLuminance, report, suggestForeground, suggestions, toHex, toHsl, toHslString, toRgbString, verdictSentence, wcagLevel } from './color'
 
 const white = parseColor('#ffffff')
 const black = parseColor('#000000')
@@ -35,6 +35,31 @@ describe('parseColor', () => {
     expect(() => parseColor('')).toThrow(ColorError)
     expect(() => parseColor('not-a-colour')).toThrow(ColorError)
     expect(() => parseColor('#12345')).toThrow(ColorError)
+  })
+
+  it('rejects channels with no numeric value', () => {
+    expect(() => parseColor('rgb(., 2, 3)')).toThrow(ColorError)
+    expect(() => parseColor('rgb(1, 2, .)')).toThrow(ColorError)
+    expect(() => parseColor('hsl(., 100%, 50%)')).toThrow(ColorError)
+    expect(() => parseColor('rgb(1, 2, 3, .)')).toThrow(ColorError)
+  })
+
+  it('never yields NaN channels', () => {
+    for (const input of ['rgb(1.2.3, 2, 3)', 'rgb(--1, 2, 3)']) {
+      expect(() => parseColor(input)).toThrow(ColorError)
+    }
+  })
+
+  it('shortens an oversized token in the error rather than echoing it whole', () => {
+    const huge = `rgb(${'1.2.'.repeat(60)}3, 2, 3)`
+    try {
+      parseColor(huge)
+      throw new Error('expected parseColor to throw')
+    } catch (err) {
+      const message = (err as Error).message
+      expect(message.length).toBeLessThan(60)
+      expect(message).toContain('…')
+    }
   })
 })
 
@@ -156,6 +181,19 @@ describe('report', () => {
     expect(result.normalPass).toBe(false)
     expect(result.largePass).toBe(true)
   })
+
+  it('flattens a translucent background onto the page before measuring', () => {
+    const translucentBg = { r: 0, g: 0, b: 0, a: 0.5 }
+    const flat = report(parseColor('#000000'), translucentBg)
+    const painted = contrastRatio(parseColor('#000000'), composite(translucentBg, white))
+    expect(flat.ratio).toBeCloseTo(painted, 10)
+  })
+
+  it('flattens the background first, then the foreground, through flattenPair', () => {
+    const ratio = flattenPair({ r: 0, g: 0, b: 0, a: 0.5 }, { r: 255, g: 255, b: 255, a: 0.5 })
+    expect(ratio).toBeGreaterThan(1)
+    expect(ratio).toBeLessThan(21)
+  })
 })
 
 describe('bestTextColor', () => {
@@ -182,5 +220,102 @@ describe('suggestForeground', () => {
   it('lightens a dark colour on a dark background', () => {
     const suggestion = suggestForeground(parseColor('#333333'), black, 4.5)
     expect(contrastRatio(suggestion, black)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('reaches the target on a mid-tone background', () => {
+    // On #808080 the only passing direction is darker. Picking a direction
+    // from the background luminance alone returns a failing colour.
+    const background = parseColor('#808080')
+    const suggestion = suggestForeground(parseColor('#aaaaaa'), background, 4.5)
+    expect(contrastRatio(suggestion, background)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('honours a custom target', () => {
+    const suggestion = suggestForeground(parseColor('#bbbbbb'), white, 7)
+    expect(contrastRatio(suggestion, white)).toBeGreaterThanOrEqual(7)
+  })
+})
+
+describe('verdictSentence', () => {
+  it('states the level a ratio reaches', () => {
+    expect(verdictSentence(report(black, white))).toMatch(/passes AAA/)
+    expect(verdictSentence(report(parseColor('#767676'), white))).toMatch(/passes AA/)
+    expect(verdictSentence(report(parseColor('#949494'), white))).toMatch(/large text/)
+    expect(verdictSentence(report(parseColor('#b0b0b0'), white))).toMatch(/fails every level/)
+  })
+
+  it('names the threshold that is still missing', () => {
+    expect(verdictSentence(report(parseColor('#767676'), white))).toContain('7:1')
+    expect(verdictSentence(report(parseColor('#949494'), white))).toContain('4.5:1')
+    expect(verdictSentence(report(parseColor('#b0b0b0'), white))).toContain('3:1')
+  })
+})
+
+describe('suggestions', () => {
+  it('only offers colours that reach the target', () => {
+    const list = suggestions(parseColor('#aaaaaa'), white)
+    expect(list.length).toBeGreaterThan(0)
+    for (const item of list) expect(item.ratio).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('deduplicates identical colours', () => {
+    const hexes = suggestions(black, white).map((item) => `${item.color.r},${item.color.g},${item.color.b}`)
+    expect(new Set(hexes).size).toBe(hexes.length)
+  })
+
+  it('marks the AA body-text pass', () => {
+    for (const item of suggestions(parseColor('#aaaaaa'), white)) {
+      expect(item.passes).toBe(contrastRatio(item.color, white) >= 4.5)
+    }
+  })
+
+  it('always offers black or white, so the list is never empty', () => {
+    for (const background of ['#ffffff', '#000000', '#808080', '#123456', '#fefefe']) {
+      const list = suggestions(parseColor('#aaaaaa'), parseColor(background))
+      expect(list.length).toBeGreaterThan(0)
+      const hasExtreme = list.some(
+        (item) => (item.color.r === 0 && item.color.g === 0 && item.color.b === 0) || (item.color.r === 255 && item.color.g === 255 && item.color.b === 255),
+      )
+      expect(hasExtreme).toBe(true)
+    }
+  })
+
+  it('labels the nearest nudge in plain words', () => {
+    const list = suggestions(parseColor('#aaaaaa'), white)
+    expect(list.some((item) => item.label === 'Closest passing')).toBe(true)
+  })
+
+  it('honours a stricter custom target', () => {
+    const list = suggestions(parseColor('#aaaaaa'), white, 7)
+    expect(list.length).toBeGreaterThan(0)
+    for (const item of list) {
+      expect(item.ratio).toBeGreaterThanOrEqual(7)
+      expect(item.passes).toBe(true)
+    }
+  })
+
+  it('can legitimately be empty when the target is out of reach', () => {
+    // A mid-grey background tops out around 5.3:1, so nothing reaches 7:1.
+    const background = parseColor('#808080')
+    expect(peakContrast(background)).toBeLessThan(7)
+    expect(suggestions(parseColor('#cccccc'), background, 7)).toEqual([])
+  })
+})
+
+describe('peakContrast', () => {
+  it('is reached by an extreme, never beaten by one', () => {
+    for (const hex of ['#ffffff', '#000000', '#808080', '#123456', '#d0e0f0']) {
+      const background = parseColor(hex)
+      const ceiling = peakContrast(background)
+      expect(ceiling).toBeGreaterThanOrEqual(flattenPair(black, background))
+      expect(ceiling).toBeGreaterThanOrEqual(flattenPair(white, background))
+      expect(ceiling).toBeLessThanOrEqual(21)
+    }
+  })
+
+  it('agrees with the better of black and white', () => {
+    const background = parseColor('#336699')
+    const ceiling = peakContrast(background)
+    expect(ceiling).toBeCloseTo(Math.max(flattenPair(black, background), flattenPair(white, background)), 10)
   })
 })

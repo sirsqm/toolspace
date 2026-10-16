@@ -1,13 +1,40 @@
 .ts-contrast-ratio { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--accent); }
 
-.ts-contrast-preview { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); margin: 12px 0; }
+.ts-contrast-sentence { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; }
+
+/* An unreadable field is marked both in the alert and on the input itself, so
+   the eye lands on the field it has to fix. */
+.ts-contrast-field[aria-invalid="true"] { border-color: var(--danger); }
+
+/* The target control sits above the suggestion buttons it drives. */
+.ts-contrast-target { margin: 0 0 12px; }
+
+/* Marks results that still describe the previous valid pair during an error. */
+.ts-contrast-stale { color: var(--warn); }
+
+/* Ratio bar sits under the figure; decorative, so it carries no label text. */
+.ts-contrast-meter { margin: 8px 0 0; }
+
+.ts-contrast-preview { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); margin: 12px 0 0; }
 .ts-contrast-preview p { margin: 0 0 8px; }
 .ts-contrast-preview p:last-child { margin-bottom: 0; }
 .ts-contrast-large { font-size: 24px; font-weight: 700; }
 .ts-contrast-small { font-size: 12px; }
 
-.ts-contrast-name { width: 170px; flex: none; }
-.ts-contrast-value { flex: 1; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+/* The suggestion buttons carry a colour and a ratio in their label, so they
+   need to wrap rather than clip on a narrow panel. */
+.ts-contrast-suggestions .ts-k-btn { max-width: 100%; }
+.ts-contrast-suggestions .ts-k-btn span { overflow-wrap: anywhere; }
 
-.ts-swatch-row { display: flex; align-items: center; gap: 8px; }
-.ts-swatch { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); }
+/* Screen-reader-only live region; the visible panels carry the same answer. */
+.ts-contrast-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

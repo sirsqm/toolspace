@@ -32,11 +32,27 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+/** Quote a token for an error message, shortened so a huge paste stays readable. */
+function quote(text: string): string {
+  return text.length > 24 ? `"${text.slice(0, 24)}…"` : `"${text}"`
+}
+
 function alphaFrom(text: string | undefined): number {
   if (text === undefined) return 1
   const value = text.endsWith('%') ? Number(text.slice(0, -1)) / 100 : Number(text)
-  if (!Number.isFinite(value)) throw new ColorError(`"${text}" is not a valid alpha`)
+  if (!Number.isFinite(value)) throw new ColorError(`${quote(text)} is not a valid alpha`)
   return clamp(value, 0, 1)
+}
+
+/**
+ * Reject channels the regex cannot: patterns like `rgb(., 2, 3)` or `1.2.3`
+ * match the numeric class but have no Number value, and would otherwise flow
+ * through as NaN and render as transparent black.
+ */
+function channelFrom(text: string, label: string): number {
+  const value = Number(text)
+  if (!Number.isFinite(value)) throw new ColorError(`${quote(text)} is not a valid ${label}`)
+  return value
 }
 
 /** Parse a hex, rgb() or hsl() colour. */
@@ -60,17 +76,24 @@ export function parseColor(input: string): Rgba {
   const rgb = RGB.exec(text)
   if (rgb) {
     return {
-      r: clamp(Math.round(Number(rgb[1])), 0, 255),
-      g: clamp(Math.round(Number(rgb[2])), 0, 255),
-      b: clamp(Math.round(Number(rgb[3])), 0, 255),
+      r: clamp(Math.round(channelFrom(rgb[1], 'red channel')), 0, 255),
+      g: clamp(Math.round(channelFrom(rgb[2], 'green channel')), 0, 255),
+      b: clamp(Math.round(channelFrom(rgb[3], 'blue channel')), 0, 255),
       a: alphaFrom(rgb[4]),
     }
   }
 
   const hsl = HSL.exec(text)
-  if (hsl) return hslToRgb({ h: Number(hsl[1]), s: Number(hsl[2]), l: Number(hsl[3]), a: alphaFrom(hsl[4]) })
+  if (hsl) {
+    return hslToRgb({
+      h: channelFrom(hsl[1], 'hue'),
+      s: channelFrom(hsl[2], 'saturation'),
+      l: channelFrom(hsl[3], 'lightness'),
+      a: alphaFrom(hsl[4]),
+    })
+  }
 
-  throw new ColorError(`"${text}" is not a colour this tool understands`)
+  throw new ColorError(`${quote(text)} is not a colour this tool understands`)
 }
 
 function channel(value: number): string {
@@ -164,26 +187,51 @@ export function wcagLevel(ratio: number, large = false): WcagLevel {
   return 'Fail'
 }
 
-/** Black or white, whichever contrasts more with the background. */
+/** Black or white, whichever contrasts more with the background as painted. */
 export function bestTextColor(background: Rgba): Rgba {
   const black = { r: 0, g: 0, b: 0, a: 1 }
   const white = { r: 255, g: 255, b: 255, a: 1 }
-  return contrastRatio(black, background) >= contrastRatio(white, background) ? black : white
+  return flattenPair(black, background) >= flattenPair(white, background) ? black : white
+}
+
+/**
+ * The most contrast any foreground can reach against this background. Black and
+ * white bracket every luminance, so one of them is the ceiling; it lets the UI
+ * say "4.2:1 is the ceiling here" instead of offering a target that cannot be
+ * met.
+ */
+export function peakContrast(background: Rgba, backdrop: Rgba = { r: 255, g: 255, b: 255, a: 1 }): number {
+  return Math.max(flattenPair({ r: 0, g: 0, b: 0, a: 1 }, background, backdrop), flattenPair({ r: 255, g: 255, b: 255, a: 1 }, background, backdrop))
 }
 
 /** Nudge a colour's lightness until it reaches the target ratio. */
 export function suggestForeground(foreground: Rgba, background: Rgba, target = 4.5): Rgba {
-  if (contrastRatio(foreground, background) >= target) return foreground
+  if (flattenPair(foreground, background) >= target) return foreground
   const hsl = toHsl(foreground)
-  const goDarker = relativeLuminance(background) > 0.5
 
-  for (let step = 1; step <= 100; step++) {
-    const lightness = goDarker ? hsl.l - step : hsl.l + step
-    if (lightness < 0 || lightness > 100) break
-    const candidate = hslToRgb({ ...hsl, l: lightness })
-    if (contrastRatio(candidate, background) >= target) return candidate
+  // Search both directions from the original lightness and keep the nearest
+  // passing result. Picking a direction from the background luminance alone
+  // fails on mid-tone backgrounds, where only one side can ever reach the
+  // target (e.g. #aaaaaa on #808080 can only pass by going darker).
+  const find = (step: number): Rgba | null => {
+    for (let i = 1; i <= 100; i++) {
+      const lightness = hsl.l + step * i
+      if (lightness < 0 || lightness > 100) return null
+      const candidate = hslToRgb({ ...hsl, l: lightness })
+      if (flattenPair(candidate, background) >= target) return candidate
+    }
+    return null
   }
-  return goDarker ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 }
+
+  const dark = find(-1)
+  const light = find(1)
+  if (dark && light) {
+    return Math.abs(toHsl(dark).l - hsl.l) <= Math.abs(toHsl(light).l - hsl.l) ? dark : light
+  }
+  if (dark) return dark
+  if (light) return light
+  // Neither direction reaches the target; black or white is the best there is.
+  return bestTextColor(background)
 }
 
 /** Mix two colours by weight, 0 returning the first and 1 the second. */
@@ -206,8 +254,21 @@ export interface ContrastReport {
   aaaPass: boolean
 }
 
+/**
+ * Contrast of a foreground against a background the way they are actually
+ * painted: a translucent background is flattened onto the page (white by
+ * default), then a translucent foreground is flattened onto that result. This
+ * is what a reader sees, and it is stronger than compositing both over a fixed
+ * white backdrop, which can flatter a pale colour on a pale background.
+ */
+export function flattenPair(foreground: Rgba, background: Rgba, backdrop: Rgba = { r: 255, g: 255, b: 255, a: 1 }): number {
+  const base = background.a < 1 ? composite(background, backdrop) : background
+  const front = foreground.a < 1 ? composite(foreground, base) : foreground
+  return contrastRatio(front, base)
+}
+
 export function report(foreground: Rgba, background: Rgba, backdrop?: Rgba): ContrastReport {
-  const ratio = contrastRatio(foreground, background, backdrop)
+  const ratio = flattenPair(foreground, background, backdrop)
   const normal = wcagLevel(ratio, false)
   const large = wcagLevel(ratio, true)
   return {
@@ -218,4 +279,48 @@ export function report(foreground: Rgba, background: Rgba, backdrop?: Rgba): Con
     largePass: large !== 'Fail',
     aaaPass: normal === 'AAA',
   }
+}
+
+/** A fixed, colour-independent rule for judging a ratio. */
+export function verdictSentence(result: ContrastReport): string {
+  const ratio = `${result.ratio.toFixed(2)}:1`
+  if (result.ratio >= 7) return `${ratio} passes AAA for body text and large text.`
+  if (result.ratio >= 4.5) return `${ratio} passes AA for body text. AAA needs 7:1.`
+  if (result.ratio >= 3) return `${ratio} passes only for large text (3:1). Body text needs 4.5:1.`
+  return `${ratio} fails every level. Even large text needs 3:1.`
+}
+
+export interface ContrastSuggestion {
+  /** Short, plain name, e.g. "Black" or "Closest passing". */
+  label: string
+  color: Rgba
+  ratio: number
+  /** True when the suggestion reaches the AA body-text target. */
+  passes: boolean
+}
+
+/**
+ * Candidate foregrounds that pass against `background`. Black, white and the
+ * nearest nudge frequently collapse to the same colour, so the list is
+ * deduplicated by hex and only passing colours are offered. Black or white
+ * always clears 4.5:1 for any background, but a 7:1 target can be out of reach
+ * on a mid-tone background, so the list may legitimately be empty.
+ */
+export function suggestions(foreground: Rgba, background: Rgba, target = 4.5): ContrastSuggestion[] {
+  const candidates: [string, Rgba][] = [
+    ['Closest passing', suggestForeground(foreground, background, target)],
+    ['Black', { r: 0, g: 0, b: 0, a: 1 }],
+    ['White', { r: 255, g: 255, b: 255, a: 1 }],
+  ]
+  const seen = new Set<string>()
+  const out: ContrastSuggestion[] = []
+  for (const [label, color] of candidates) {
+    const ratio = flattenPair(color, background)
+    if (ratio < target) continue
+    const key = toHex(color)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ label, color, ratio, passes: ratio >= target })
+  }
+  return out
 }
