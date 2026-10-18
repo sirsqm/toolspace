@@ -1,0 +1,32 @@
+/* Screen-reader-only live region; the visible panels carry the same answer. */
+.ts-unicode-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The character cell is the anchor of the row, so give it room and a mono
+   face; invisible characters are shown as their visible stand-in (␠, ␉, ␡). */
+.ts-unicode-char {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 1.05em;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Warnings about the input itself (unpaired surrogates) sit under the totals. */
+.ts-unicode-flags:not(:empty) {
+  margin-top: 10px;
+}
