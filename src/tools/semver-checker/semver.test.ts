@@ -191,3 +191,28 @@ describe('partial versions', () => {
     expect(() => satisfies('1.0.0', 'banana')).toThrow(SemverError)
   })
 })
+
+describe('boundaries', () => {
+  it('compares long numeric prerelease identifiers without rounding', () => {
+    // Number() would round both of these to the same float.
+    expect(compareVersions('1.0.0-9007199254740993', '1.0.0-9007199254740992')).toBe(1)
+    expect(compareVersions('1.0.0-alpha.9007199254740993', '1.0.0-alpha.9007199254740992')).toBe(1)
+  })
+
+  it('refuses a component too large to compare exactly', () => {
+    expect(() => parse('90071992547409920.0.0')).toThrow(/too large/)
+    expect(() => satisfies('1.0.0', '^90071992547409920.0.0')).toThrow(/too large/)
+  })
+
+  it('stays fast on a very large pasted range', () => {
+    const huge = '>=1.0.0 '.repeat(400)
+    const started = Date.now()
+    expect(() => satisfies('1.0.0', huge)).toThrow(/too long/)
+    expect(Date.now() - started).toBeLessThan(200)
+  })
+
+  it('handles zero and leading zeros', () => {
+    expect(parse('0.0.0')).toEqual({ major: 0, minor: 0, patch: 0, prerelease: [], build: [] })
+    expect(satisfies('0.0.1', '>=0.0.0')).toBe(true)
+  })
+})

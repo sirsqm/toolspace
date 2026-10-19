@@ -27,16 +27,37 @@ export class SemverError extends Error {}
 const PATTERN =
   /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-.]+))?(?:\+([0-9A-Za-z-.]+))?$/
 
+/**
+ * Components above 2^53 lose precision as a float, which would make two
+ * different versions compare equal. npm versions never get near this, so the
+ * honest thing is to refuse rather than answer wrongly. The length cap also
+ * bounds how much work a pasted string can ask of the regexes below.
+ */
+const MAX_LENGTH = 256
+
+function toComponent(text: string): number {
+  if (text.length > 16) {
+    throw new SemverError(`The version part "${text}" is too large to compare exactly.`)
+  }
+  const value = Number(text)
+  if (!Number.isSafeInteger(value)) {
+    throw new SemverError(`The version part "${text}" is too large to compare exactly.`)
+  }
+  return value
+}
+
 /** A version with zero or more numeric components filled in, for loose input. */
 const PARTIAL = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-.]+))?(?:\+([0-9A-Za-z-.]+))?$/
 
 export function parse(version: string): SemVer {
-  const match = PATTERN.exec(version.trim())
+  const text = version.trim()
+  if (text.length > MAX_LENGTH) throw new SemverError('That version is too long to read.')
+  const match = PATTERN.exec(text)
   if (!match) throw new SemverError(`"${version}" is not a valid semantic version.`)
   return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
+    major: toComponent(match[1]),
+    minor: toComponent(match[2]),
+    patch: toComponent(match[3]),
     prerelease: match[4] ? match[4].split('.') : [],
     build: match[5] ? match[5].split('.') : [],
   }
@@ -55,8 +76,11 @@ function comparePrerelease(a: string[], b: string[]): number {
     const xn = /^\d+$/.test(x)
     const yn = /^\d+$/.test(y)
     if (xn && yn) {
-      const diff = Number(x) - Number(y)
-      if (diff !== 0) return diff < 0 ? -1 : 1
+      // Numeric identifiers are compared as numbers by the spec, but a float
+      // would round two long identifiers together. Shorter means smaller, and
+      // equal length can be compared as a string.
+      if (x.length !== y.length) return x.length < y.length ? -1 : 1
+      if (x !== y) return x < y ? -1 : 1
     } else if (xn) {
       return -1
     } else if (yn) {
@@ -153,10 +177,12 @@ interface Loose {
 }
 
 function parseLoose(version: string): Loose {
-  const match = PARTIAL.exec(version.trim())
+  const text = version.trim()
+  if (text.length > MAX_LENGTH) throw new SemverError('That version is too long to read.')
+  const match = PARTIAL.exec(text)
   if (!match) throw new SemverError(`"${version}" is not a version or range.`)
   const number = (part: string | undefined): number | null =>
-    part === undefined || /^[xX*]$/.test(part) ? null : Number(part)
+    part === undefined || /^[xX*]$/.test(part) ? null : toComponent(part)
   return {
     major: number(match[1]),
     minor: number(match[2]),
@@ -301,6 +327,7 @@ function allowsPrerelease(set: ComparatorSet, version: SemVer): boolean {
 
 /** Whether a version string satisfies a range string. */
 export function satisfies(version: string, range: string): boolean {
+  if (range.length > MAX_LENGTH) throw new SemverError('That range is too long to read.')
   const target = parse(version)
   for (const group of range.split('||')) {
     const set = parseSet(group)
@@ -336,6 +363,7 @@ export interface Bounds {
  * actually allow?".
  */
 export function bounds(group: string): Bounds {
+  if (group.length > MAX_LENGTH) throw new SemverError('That range is too long to read.')
   const set = parseSet(group)
   let min: SemVer | null = null
   let max: SemVer | null = null
