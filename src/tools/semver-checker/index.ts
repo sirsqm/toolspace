@@ -112,6 +112,18 @@ const tool: Tool = {
         return
       }
 
+      // Version A is the subject of every other panel, so its absence is worth
+      // naming rather than failing on an empty parse.
+      if (!aText) {
+        error.textContent = 'Enter Version A — the version the other fields are checked against.'
+        error.hidden = false
+        status.textContent = 'Enter a version in the Version A field.'
+        verdict.replaceChildren(badge('Version A needed', 'neutral'))
+        rangeWords.textContent =
+          'Versions look like 1.2.3 or 1.0.0-beta.1. Ranges look like ^1.2.0, ~1.2.3, 1.x or >=1.0.0 <2.0.0.'
+        return
+      }
+
       let a
       let b
       try {
@@ -129,6 +141,7 @@ const tool: Tool = {
       bumpRows.replaceChildren(...nextVersions(a).map((bump) => copyRow(`${bump.label} (${bump.hint})`, bump.version)))
 
       let matches = false
+      let rangeFailed = false
       if (b) {
         const diff = compare(a, b)
         const relation = diff === 0 ? 'equal to' : diff < 0 ? 'older than' : 'newer than'
@@ -170,6 +183,7 @@ const tool: Tool = {
           boundsRows.replaceChildren(...rows)
           verdict.append(badge(matches ? 'satisfies range' : 'outside range', matches ? 'ok' : 'danger'))
         } catch (err) {
+          rangeFailed = true
           rangeWords.textContent = err instanceof SemverError ? err.message : 'That range could not be read.'
           verdict.append(badge('range not understood', 'danger'))
         }
@@ -186,7 +200,11 @@ const tool: Tool = {
       } else {
         bits.push(isStable(a) ? `${aText} is a stable release` : `${aText} is a prerelease`)
       }
-      if (rangeText) bits.push(matches ? `it satisfies ${rangeText}` : `it does not satisfy ${rangeText}`)
+      if (rangeText) {
+        if (rangeFailed) {
+          bits.push(rangeText.length <= 40 ? `the range ${rangeText} could not be read` : 'the range could not be read')
+        } else bits.push(matches ? `it satisfies ${rangeText}` : `it does not satisfy ${rangeText}`)
+      }
       status.textContent = `${bits.join('; ')}.`
     }
 
