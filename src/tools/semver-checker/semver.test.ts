@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareVersions, describeRange, isStable, nextVersions, parse, satisfies, SemverError } from './semver'
+import { bounds, changeKind, compareVersions, describeParts, describeRange, format, isStable, nextVersions, parse, satisfies, SemverError } from './semver'
 
 describe('parse', () => {
   it('parses a full version', () => {
@@ -98,8 +98,96 @@ describe('describeRange', () => {
   it('explains each range shape', () => {
     expect(describeRange('*')).toMatch(/Any/)
     expect(describeRange('^1.2.3')).toMatch(/Compatible/)
-    expect(describeRange('~1.2.3')).toMatch(/Approximately/)
+    expect(describeRange('~1.2.3')).toMatch(/Approximately|Patch-level/)
     expect(describeRange('1.2.3 - 2.0.0')).toMatch(/Between/)
     expect(describeRange('1.x')).toMatch(/wildcard/)
+    expect(describeRange('^1 || ^3')).toMatch(/2 alternatives/)
+  })
+})
+
+describe('format', () => {
+  it('round-trips prerelease and build metadata', () => {
+    expect(format(parse('1.0.0-alpha.1+build.5'))).toBe('1.0.0-alpha.1+build.5')
+    expect(format(parse('v2.3.4'))).toBe('2.3.4')
+  })
+})
+
+describe('describeParts', () => {
+  it('names the parts that are present', () => {
+    expect(describeParts(parse('1.2.3')).map((part) => part.label)).toEqual(['Major', 'Minor', 'Patch'])
+    expect(describeParts(parse('1.2.3-beta.2+build')).map((part) => part.label)).toEqual([
+      'Major', 'Minor', 'Patch', 'Prerelease', 'Build metadata',
+    ])
+  })
+})
+
+describe('changeKind', () => {
+  it('names the kind of change under Semantic Versioning', () => {
+    expect(changeKind(parse('1.2.3'), parse('1.2.4')).label).toBe('fix')
+    expect(changeKind(parse('1.2.3'), parse('1.3.0')).label).toBe('new feature')
+    expect(changeKind(parse('1.2.3'), parse('2.0.0')).label).toBe('breaking change')
+    expect(changeKind(parse('1.2.3'), parse('1.2.3')).label).toBe('no change')
+  })
+
+  it('treats a zero-major minor bump as breaking, like npm', () => {
+    expect(changeKind(parse('0.2.5'), parse('0.3.0')).tone).toBe('warn')
+    expect(changeKind(parse('0.2.5'), parse('0.2.6')).label).toBe('fix')
+    expect(changeKind(parse('0.2.5'), parse('1.0.0')).label).toBe('breaking change')
+  })
+})
+
+describe('bounds', () => {
+  it('reports the concrete limits of a caret range', () => {
+    const result = bounds('^1.2.3')
+    expect(result.min).toBe('1.2.3')
+    expect(result.max).toBe('2.0.0')
+    expect(result.maxStrict).toBe(true)
+    expect(result.any).toBe(false)
+  })
+
+  it('flags a range that accepts anything', () => {
+    expect(bounds('*').any).toBe(true)
+    expect(bounds('>=1.0.0').max).toBeNull()
+  })
+
+  it('keeps an inclusive upper bound inclusive', () => {
+    expect(bounds('1.2.3 - 2.0.0').maxStrict).toBe(false)
+  })
+})
+
+describe('prerelease range matching', () => {
+  // node-semver only lets a prerelease match a set that names one on the same
+  // major.minor.patch. Without the rule ^1.0.0 would claim 2.0.0-beta.
+  it('keeps a prerelease out of a range that does not name one', () => {
+    expect(satisfies('2.0.0-beta', '^1.0.0')).toBe(false)
+    expect(satisfies('1.5.0-beta', '^1.0.0')).toBe(false)
+  })
+
+  it('lets a range with its own prerelease match it', () => {
+    expect(satisfies('1.0.0-beta.2', '>=1.0.0-beta.1 <1.0.0')).toBe(true)
+    expect(satisfies('1.1.0-beta', '>=1.0.0-beta.1 <1.0.0')).toBe(false)
+  })
+
+  it('still matches a plain release against a caret range', () => {
+    expect(satisfies('1.9.0', '^1.0.0')).toBe(true)
+  })
+})
+
+describe('partial versions', () => {
+  it('treats a partial version as its prefix, like npm does', () => {
+    expect(satisfies('1.2.9', '1.2')).toBe(true)
+    expect(satisfies('1.3.0', '1.2')).toBe(false)
+    expect(satisfies('1.9.9', '1')).toBe(true)
+  })
+
+  it('handles caret and tilde on partial versions', () => {
+    expect(satisfies('1.9.9', '^1')).toBe(true)
+    expect(satisfies('2.0.0', '^1')).toBe(false)
+    expect(satisfies('1.9.9', '~1')).toBe(true)
+    expect(satisfies('2.0.0', '~1')).toBe(false)
+  })
+
+  it('rejects text that is not a version or range', () => {
+    expect(() => satisfies('1.0.0', 'banana')).toThrow(SemverError)
   })
 })
