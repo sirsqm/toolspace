@@ -16,3 +16,14 @@
 .ts-tool-body .ts-k-note--danger strong {
   font-weight: 600;
 }
+
+/* Every block below the picker is hidden until a header has been read. The kit
+   containers set `display` (grid, flex), which beats the UA `[hidden]` rule, so
+   the empty first run would otherwise still show an empty stat strip, two blank
+   panels and a lone button. `!important` is the point here, not laziness. */
+.ts-imagesize-result[hidden] { display: none !important; }
+
+/* The label and value in a "fit within" card are two short strings; on a narrow
+   screen they wrap rather than pushing the grid wider than the viewport. */
+.ts-imagesize-fit { min-width: 0; }
+.ts-imagesize-fit .ts-k-stat__value { white-space: nowrap; }

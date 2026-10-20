@@ -50,14 +50,26 @@ const tool: Tool = {
     const figures = stats()
 
     const scale = textField({ value: '50', type: 'number', mono: true, onInput: () => runScale() })
+    // A real <label for> needs a real id; the kit only links them when given one.
+    scale.id = 'ts-imagesize-scale'
+    scale.min = '1'
+    scale.step = 'any'
     const scaleOut = el('div', { class: 'ts-k-kvlist' })
 
     const previewPanel = panel({ title: 'Preview', icon: 'image' }, frame.root, caption)
     const detailPanel = panel({ title: 'Details', icon: 'ruler' }, details)
-    const fitPanel = panel({ title: 'Fit within', icon: 'ruler' }, fits)
+    const fitPanel = panel(
+      { title: 'Fit inside a box', icon: 'ruler' },
+      note('The size to resize to so the whole image fits inside each box, keeping its shape. An image already inside a box is left as it is.'),
+      fits,
+    )
     const scalePanel = panel(
       { title: 'Resize by percentage', icon: 'sliders' },
-      field(scale, { label: 'Scale (%)', hint: 'The size to ask a resizer for. Nothing here changes the file.' }),
+      field(scale, {
+        label: 'Scale (%)',
+        forId: 'ts-imagesize-scale',
+        hint: 'The size to ask a resizer for. Nothing here changes the file.',
+      }),
       scaleOut,
     )
 
@@ -81,6 +93,9 @@ const tool: Tool = {
 
     /** The blocks that only mean something once a file has been read. */
     const resultNodes = [figures, resultRow, fitPanel, scalePanel, reportRow]
+    // Kit containers set `display`, which beats the UA `[hidden]` rule, so the
+    // tool.css marker class carries the hide for them.
+    for (const node of resultNodes) node.classList.add('ts-imagesize-result')
 
     function showResults(visible: boolean) {
       for (const node of resultNodes) node.hidden = !visible
@@ -102,6 +117,10 @@ const tool: Tool = {
       const percent = Number(scale.value)
       if (!scale.value.trim() || !Number.isFinite(percent) || percent <= 0) {
         scaleOut.replaceChildren(copyRow('Result', 'Enter a percentage above zero', { copy: false }))
+        return
+      }
+      if (percent > 1000) {
+        scaleOut.replaceChildren(copyRow('Result', 'Enter a percentage of 1000 or less', { copy: false }))
         return
       }
       const size = scaleByPercent(current.info.width, current.info.height, percent)
@@ -166,8 +185,8 @@ const tool: Tool = {
       fits.replaceChildren(
         ...FIT_TARGETS.map(({ label, width, height }) => {
           const fit = fitWithin(info.width, info.height, width, height)
-          const card = stat({ label, value: `${fit.width} × ${fit.height}`, hint: `from ${width} × ${height}` })
-          card.classList.add('ts-k-stat--box')
+          const card = stat({ label, value: `${fit.width} × ${fit.height}`, hint: `inside ${width} × ${height}` })
+          card.classList.add('ts-k-stat--box', 'ts-imagesize-fit')
           return card
         }),
       )

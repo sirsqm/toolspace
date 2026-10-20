@@ -282,8 +282,8 @@ export const FIT_TARGETS: readonly FitTarget[] = [
   { label: 'Full HD', width: 1920, height: 1080 },
   { label: 'Open Graph card', width: 1200, height: 630 },
   { label: 'Twitter card', width: 1200, height: 675 },
-  { label: 'Retina thumb', width: 512, height: 512 },
-  { label: 'Favicon', width: 256, height: 256 },
+  { label: '512 px box', width: 512, height: 512 },
+  { label: '256 px box', width: 256, height: 256 },
 ]
 
 /** Scale to a percentage of the original, keeping each side at least one pixel. */
