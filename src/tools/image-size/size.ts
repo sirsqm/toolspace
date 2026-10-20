@@ -128,8 +128,10 @@ function avif(bytes: Uint8Array): ImageDimensions | null {
   if (brand !== 'avif' && brand !== 'avis') return null
   const data = view(bytes)
   // The ispe box holds the pixel dimensions, but its position varies, so scan
-  // for the box type and read the two uint32 values that follow.
-  for (let i = 0; i + 12 <= bytes.length; i++) {
+  // for the box type and read the two uint32 values that follow. The loop bound
+  // covers the 16 bytes that read needs; a shorter bound read past the end of a
+  // truncated file and threw a RangeError out of a function that never throws.
+  for (let i = 0; i + 16 <= bytes.length; i++) {
     if (readAscii(bytes, i, 4) === 'ispe') {
       return { width: data.getUint32(i + 8), height: data.getUint32(i + 12), format: 'AVIF', mime: 'image/avif' }
     }
@@ -137,9 +139,66 @@ function avif(bytes: Uint8Array): ImageDimensions | null {
   return null
 }
 
-/** Try every reader and return the first result. */
+export interface ImageProblem {
+  /** What is wrong, in one sentence. */
+  reason: string
+  /** What the reader can do about it. */
+  hint: string
+}
+
+export type ImageRead = { ok: true; info: ImageDimensions } | { ok: false; problem: ImageProblem }
+
+/**
+ * Read an image header, and say *why* when it cannot be read.
+ *
+ * `readDimensions` answers with a plain null, which left the tool with one
+ * generic message for four different situations. This keeps the reason so the
+ * page can tell an empty file from an unknown format from a damaged header.
+ */
+export function inspectImage(bytes: Uint8Array): ImageRead {
+  if (bytes.length === 0) {
+    return { ok: false, problem: { reason: 'That file is empty.', hint: 'Choose a file that has an image in it.' } }
+  }
+  const info =
+    png(bytes) ?? gif(bytes) ?? jpeg(bytes) ?? webp(bytes) ?? bmp(bytes) ?? ico(bytes) ?? tiff(bytes) ?? avif(bytes)
+  if (!info) {
+    return {
+      ok: false,
+      problem: {
+        reason: 'The file header does not match any format this tool reads.',
+        hint: 'PNG, JPEG, GIF, WebP, BMP, ICO, TIFF and AVIF are supported. A renamed or corrupt file will not read, because the header is what carries the size.',
+      },
+    }
+  }
+  if (!Number.isInteger(info.width) || !Number.isInteger(info.height) || info.width <= 0 || info.height <= 0) {
+    return {
+      ok: false,
+      problem: {
+        reason: `The header claims a size of ${info.width} × ${info.height}, which is not a usable image size.`,
+        hint: 'A header that is damaged or truncated like this cannot be trusted, so no dimensions are shown.',
+      },
+    }
+  }
+  if (info.width > 1_000_000 || info.height > 1_000_000) {
+    return {
+      ok: false,
+      problem: {
+        reason: `The header claims a size of ${info.width} × ${info.height}, which is larger than any real image.`,
+        hint: 'The header is probably damaged. Nothing else in the file was read.',
+      },
+    }
+  }
+  return { ok: true, info }
+}
+
+/**
+ * Try every reader and return the first result, or null.
+ *
+ * Kept as the thin form of `inspectImage` for callers that only want the size.
+ */
 export function readDimensions(bytes: Uint8Array): ImageDimensions | null {
-  return png(bytes) ?? gif(bytes) ?? jpeg(bytes) ?? webp(bytes) ?? bmp(bytes) ?? ico(bytes) ?? tiff(bytes) ?? avif(bytes)
+  const read = inspectImage(bytes)
+  return read.ok ? read.info : null
 }
 
 export function formatBytes(bytes: number): string {
@@ -160,6 +219,81 @@ export interface AspectInfo {
   decimal: number
   orientation: 'landscape' | 'portrait' | 'square'
   megapixels: number
+}
+
+/** One of the shapes people actually mean when they say "16:9". */
+export interface CommonRatio {
+  label: string
+  /** Width divided by height for this shape. */
+  ratio: number
+  /** The size at this shape that keeps the original's longer side. */
+  width: number
+  height: number
+  /** Distance from the original shape as a fraction: 0.01 is one percent. */
+  deviation: number
+}
+
+const COMMON_RATIOS: readonly [string, number, number][] = [
+  ['1:1', 1, 1],
+  ['5:4', 5, 4],
+  ['4:3', 4, 3],
+  ['3:2', 3, 2],
+  ['16:10', 16, 10],
+  ['16:9', 16, 9],
+  ['1.91:1', 1.91, 1],
+  ['21:9', 21, 9],
+  ['3:4', 3, 4],
+  ['2:3', 2, 3],
+  ['9:16', 9, 16],
+]
+
+/**
+ * The nearest well-known aspect ratio, or null when the image is not close to
+ * any of them. The size offered keeps the original's longer side, so it is a
+ * like-for-like crop or pad target rather than an arbitrary rescale.
+ */
+export function nearestCommonRatio(width: number, height: number, tolerance = 0.02): CommonRatio | null {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error('The tolerance must be zero or more')
+  const actual = width / height
+  const longSide = Math.max(width, height)
+  let best: CommonRatio | null = null
+  for (const [label, ratioWidth, ratioHeight] of COMMON_RATIOS) {
+    const ratio = ratioWidth / ratioHeight
+    const deviation = Math.abs(actual - ratio) / ratio
+    if (deviation > tolerance) continue
+    const target =
+      ratio >= 1
+        ? { width: Math.round(longSide), height: Math.round(longSide / ratio) }
+        : { width: Math.round(longSide * ratio), height: Math.round(longSide) }
+    if (!best || deviation < best.deviation) best = { label, ratio, deviation, ...target }
+  }
+  return best
+}
+
+/** The sizes offered as one-click checks, and the "fit within" panel. */
+export interface FitTarget {
+  label: string
+  width: number
+  height: number
+}
+
+export const FIT_TARGETS: readonly FitTarget[] = [
+  { label: 'Full HD', width: 1920, height: 1080 },
+  { label: 'Open Graph card', width: 1200, height: 630 },
+  { label: 'Twitter card', width: 1200, height: 675 },
+  { label: 'Retina thumb', width: 512, height: 512 },
+  { label: 'Favicon', width: 256, height: 256 },
+]
+
+/** Scale to a percentage of the original, keeping each side at least one pixel. */
+export function scaleByPercent(width: number, height: number, percent: number): { width: number; height: number } {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) throw new Error('Width and height must be positive')
+  if (!Number.isFinite(percent) || percent <= 0) throw new Error('The scale must be greater than zero')
+  return {
+    width: Math.max(1, Math.round((width * percent) / 100)),
+    height: Math.max(1, Math.round((height * percent) / 100)),
+  }
 }
 
 function gcd(a: number, b: number): number {

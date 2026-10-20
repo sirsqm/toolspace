@@ -1,0 +1,18 @@
+/* Screen-reader-only status sentence; the visible panels carry the same answer. */
+.ts-imagesize-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A file that was dropped but could not be read is the whole story, so the
+   reason and the hint read as one sentence rather than a note and a list. */
+.ts-tool-body .ts-k-note--danger strong {
+  font-weight: 600;
+}

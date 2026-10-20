@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { aspect, fitWithin, formatBytes, readDimensions } from './size'
+import {
+  aspect,
+  fitWithin,
+  formatBytes,
+  inspectImage,
+  nearestCommonRatio,
+  readDimensions,
+  scaleByPercent,
+} from './size'
 
 function bytes(...values: number[]): Uint8Array {
   return new Uint8Array(values)
@@ -135,5 +143,117 @@ describe('fitWithin', () => {
 
   it('rejects non-positive limits', () => {
     expect(() => fitWithin(100, 100, 0, 100)).toThrow()
+  })
+})
+
+describe('nearestCommonRatio', () => {
+  it('names an exact shape and offers the size at that shape', () => {
+    const ratio = nearestCommonRatio(1920, 1080)
+    expect(ratio?.label).toBe('16:9')
+    expect(ratio?.width).toBe(1920)
+    expect(ratio?.height).toBe(1080)
+    expect(ratio?.deviation).toBe(0)
+  })
+
+  it('keeps the longer side for a portrait image', () => {
+    expect(nearestCommonRatio(1080, 1920)).toMatchObject({ label: '9:16', width: 1080, height: 1920 })
+  })
+
+  it('accepts a near miss inside the tolerance', () => {
+    expect(nearestCommonRatio(1918, 1080)?.label).toBe('16:9')
+  })
+
+  it('picks the closest shape when two are in range', () => {
+    // 1200 x 630 is the standard Open Graph card, which is its own shape.
+    expect(nearestCommonRatio(1200, 630, 0.1)?.label).toBe('1.91:1')
+  })
+
+  it('returns null when nothing is close', () => {
+    expect(nearestCommonRatio(1000, 333)).toBeNull()
+  })
+
+  it('returns null for a size that is not usable', () => {
+    expect(nearestCommonRatio(0, 100)).toBeNull()
+    expect(nearestCommonRatio(Number.NaN, 100)).toBeNull()
+    expect(nearestCommonRatio(100, Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('rejects a negative tolerance', () => {
+    expect(() => nearestCommonRatio(100, 100, -1)).toThrow()
+  })
+})
+
+describe('scaleByPercent', () => {
+  it('scales both sides', () => {
+    expect(scaleByPercent(1920, 1080, 50)).toEqual({ width: 960, height: 540 })
+    expect(scaleByPercent(1920, 1080, 25)).toEqual({ width: 480, height: 270 })
+  })
+
+  it('never rounds a side away to zero', () => {
+    expect(scaleByPercent(10, 1, 1)).toEqual({ width: 1, height: 1 })
+    expect(scaleByPercent(1, 1, 0.5)).toEqual({ width: 1, height: 1 })
+  })
+
+  it('rejects a scale of zero or less', () => {
+    expect(() => scaleByPercent(100, 100, 0)).toThrow()
+    expect(() => scaleByPercent(100, 100, -5)).toThrow()
+    expect(() => scaleByPercent(100, 100, Number.NaN)).toThrow()
+  })
+})
+
+describe('inspectImage', () => {
+  function png(width: number, height: number): Uint8Array {
+    const data = new Uint8Array(24)
+    data.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const view = new DataView(data.buffer)
+    view.setUint32(16, width)
+    view.setUint32(20, height)
+    return data
+  }
+
+  it('reads a good header', () => {
+    expect(inspectImage(png(800, 600))).toEqual({
+      ok: true,
+      info: { width: 800, height: 600, format: 'PNG', mime: 'image/png' },
+    })
+  })
+
+  it('names an empty file', () => {
+    const read = inspectImage(new Uint8Array(0))
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.problem.reason).toMatch(/empty/i)
+  })
+
+  it('names an unknown format', () => {
+    const read = inspectImage(new TextEncoder().encode('not an image at all, just text'))
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.problem.reason).toMatch(/does not match any format/i)
+  })
+
+  it('refuses a header that claims a zero side instead of throwing', () => {
+    const read = inspectImage(png(0, 600))
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.problem.reason).toContain('0 × 600')
+  })
+
+  it('refuses an absurd claimed size', () => {
+    const read = inspectImage(png(4_294_967_295, 600))
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.problem.reason).toMatch(/larger than any real image/i)
+  })
+
+  it('does not throw on a truncated AVIF header', () => {
+    const data = new Uint8Array(20)
+    data.set(new TextEncoder().encode('ftyp'), 4)
+    data.set(new TextEncoder().encode('avif'), 8)
+    data.set(new TextEncoder().encode('ispe'), 16)
+    expect(() => inspectImage(data)).not.toThrow()
+    expect(inspectImage(data).ok).toBe(false)
+  })
+
+  it('keeps readDimensions as the thin form', () => {
+    expect(readDimensions(png(800, 600))?.width).toBe(800)
+    expect(readDimensions(png(0, 600))).toBeNull()
+    expect(readDimensions(new Uint8Array(0))).toBeNull()
   })
 })
