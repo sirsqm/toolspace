@@ -1,3 +1,22 @@
-.ts-bytes-main { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--accent); }
-.ts-bytes-value { flex: 1; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+/* Screen-reader-only status line; the visible figures carry the same answer. */
+.ts-bytes-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The result blocks are hidden until there is a readable size. The kit
+   containers set `display` (grid for stats), which beats the UA `[hidden]`
+   rule, so the first run would otherwise show an empty stat strip. */
+.ts-bytes-block[hidden] { display: none !important; }
+
 .ts-bytes-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+
+/* Long byte counts ("12,000,000 bit") must not push the stat strip wide. */
+.ts-bytes-block .ts-k-stat__value { overflow-wrap: anywhere; }
