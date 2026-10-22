@@ -12,6 +12,15 @@ export interface Fingerprints {
   md5: string
 }
 
+/** One judged property of a key, so the UI can explain the verdict, not just print it. */
+export interface KeyCheck {
+  level: 'ok' | 'warn' | 'danger'
+  /** Short status word for the left gutter, e.g. "Modern". */
+  status: string
+  title: string
+  detail: string
+}
+
 export interface SshKey {
   kind: 'public' | 'private'
   type: string
@@ -21,7 +30,12 @@ export interface SshKey {
   bits?: number
   curve?: string
   encrypted?: boolean
+  /** The host column of a known_hosts line, when the input had one. */
+  host?: string
+  /** The line this key was read from, trimmed, for multi-key pastes. */
+  source: string
   fingerprints: Fingerprints
+  checks: KeyCheck[]
   warnings: string[]
 }
 
@@ -73,7 +87,7 @@ class Reader {
   constructor(readonly bytes: Uint8Array) {}
 
   private take(length: number): Uint8Array {
-    if (this.offset + length > this.bytes.length) throw new SshError('The key data is truncated.')
+    if (length < 0 || this.offset + length > this.bytes.length) throw new SshError('The key data is truncated.')
     const slice = this.bytes.subarray(this.offset, this.offset + length)
     this.offset += length
     return slice
@@ -81,7 +95,7 @@ class Reader {
 
   uint32(): number {
     const bytes = this.take(4)
-    return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]
+    return ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0
   }
 
   string(): Uint8Array {
@@ -207,25 +221,130 @@ function md5(input: Uint8Array): Uint8Array {
   return out
 }
 
-function warningsFor(info: BlobInfo): string[] {
-  const warnings: string[] = []
-  if (info.type === 'ssh-rsa') warnings.push('ssh-rsa is the legacy SHA-1 signature format. Prefer rsa-sha2 or Ed25519.')
-  if (info.type === 'ssh-dss') warnings.push('DSA keys are deprecated and rejected by most servers.')
-  if (info.bits && info.type === 'ssh-rsa' && info.bits < 2048) warnings.push('RSA keys shorter than 2048 bits are considered weak.')
+/**
+ * Judge the key type and size. The checks are the source of truth: `warnings`
+ * is derived from them, so the page and the returned value cannot disagree.
+ */
+function checksFor(info: BlobInfo, kind: 'public' | 'private', encrypted = false): KeyCheck[] {
+  const checks: KeyCheck[] = []
+  const isSk = info.type.startsWith('sk-')
+
+  if (info.type === 'ssh-dss') {
+    checks.push({
+      level: 'danger',
+      status: 'Deprecated',
+      title: 'DSA',
+      detail: 'DSA keys are deprecated and rejected by most servers. Replace it with Ed25519.',
+    })
+  } else if (info.type === 'ssh-rsa') {
+    checks.push({
+      level: 'warn',
+      status: 'Legacy',
+      title: 'ssh-rsa',
+      detail: 'ssh-rsa is the legacy SHA-1 signature format. Prefer rsa-sha2 or Ed25519.',
+    })
+  } else if (info.type.startsWith('rsa-sha2')) {
+    checks.push({
+      level: 'ok',
+      status: 'Modern',
+      title: 'RSA with SHA-2',
+      detail: 'RSA signatures with SHA-2 are still accepted everywhere, though the key is large.',
+    })
+  } else if (info.type === 'ssh-ed25519' || info.type === 'sk-ssh-ed25519@openssh.com') {
+    checks.push({
+      level: 'ok',
+      status: 'Modern',
+      title: info.label,
+      detail: 'Ed25519 keys are short, fast and have no size parameter to get wrong.',
+    })
+  } else if (info.type.startsWith('ecdsa-sha2-')) {
+    checks.push({
+      level: 'ok',
+      status: 'Fine',
+      title: info.label,
+      detail: 'A fine choice. Ed25519 is smaller and faster if you ever need to switch.',
+    })
+  }
+
+  if (isSk) {
+    checks.push({
+      level: 'warn',
+      status: 'Hardware',
+      title: 'Security key',
+      detail: 'This key only works while the matching physical security key is plugged in.',
+    })
+  }
+
+  if (info.type === 'ssh-rsa' && info.bits) {
+    if (info.bits < 2048) {
+      checks.push({
+        level: 'danger',
+        status: 'Weak',
+        title: `${info.bits}-bit RSA`,
+        detail: 'RSA keys shorter than 2048 bits are considered weak. Generate at least 3072 bits.',
+      })
+    } else if (info.bits < 3072) {
+      checks.push({
+        level: 'warn',
+        status: 'Short',
+        title: `${info.bits}-bit RSA`,
+        detail: 'Accepted today, but ssh-keygen now defaults to 3072 bits. Consider a longer key.',
+      })
+    }
+  }
+
+  if (kind === 'private') {
+    checks.push(
+      encrypted
+        ? {
+            level: 'ok',
+            status: 'Encrypted',
+            title: 'Passphrase set',
+            detail: 'The key is encrypted at rest, so a stolen file is not enough to use it.',
+          }
+        : {
+            level: 'warn',
+            status: 'Unsafe',
+            title: 'Unencrypted',
+            detail: 'The key is stored unencrypted; a passphrase would protect it at rest.',
+          },
+    )
+  }
+
+  return checks
+}
+
+function warningsFor(info: BlobInfo, kind: 'public' | 'private', encrypted = false): string[] {
+  const checks = checksFor(info, kind, encrypted).filter((check) => check.level !== 'ok')
+  const warnings = checks.map((check) => check.detail)
+  if (kind === 'private') {
+    warnings.unshift('This is a PRIVATE key. Never share it — only the matching public key belongs on a server.')
+  }
   return warnings
 }
 
+/** A host column on a known_hosts line, as opposed to authorized_keys options. */
+function hostFromToken(token: string): string | undefined {
+  if (!token || /["=,]/.test(token) || token.startsWith('no-')) return undefined
+  return token
+}
+
 export async function inspectPublicKey(input: string): Promise<SshKey> {
-  const tokens = input.trim().split(/\s+/).filter(Boolean)
+  const source = input.trim()
+  const tokens = source.split(/\s+/).filter(Boolean)
   // Authorized-keys lines may carry options before the type; find the type token.
   const typeIndex = tokens.findIndex((token) => /^(ssh-|ecdsa-|sk-)/.test(token))
-  if (typeIndex < 0) throw new SshError('No SSH key type found. Expected a line like "ssh-ed25519 AAAA… comment".')
+  if (typeIndex < 0) {
+    throw new SshError('No SSH key type found. Expected a line like "ssh-ed25519 AAAA… comment".')
+  }
   const declaredType = tokens[typeIndex]
   const payload = tokens[typeIndex + 1]
   if (!payload) throw new SshError('The key is missing its Base64 payload.')
   const blob = base64ToBytes(payload)
   const info = describeBlob(blob)
-  if (info.type !== declaredType) throw new SshError(`The key type says "${declaredType}" but the payload is "${info.type}".`)
+  if (info.type !== declaredType) {
+    throw new SshError(`The key type says "${declaredType}" but the payload is "${info.type}".`)
+  }
 
   return {
     kind: 'public',
@@ -234,8 +353,11 @@ export async function inspectPublicKey(input: string): Promise<SshKey> {
     comment: tokens.slice(typeIndex + 2).join(' '),
     bits: info.bits,
     curve: info.curve,
+    host: typeIndex === 1 ? hostFromToken(tokens[0]) : undefined,
+    source,
     fingerprints: await fingerprints(blob),
-    warnings: warningsFor(info),
+    checks: checksFor(info, 'public'),
+    warnings: warningsFor(info, 'public'),
   }
 }
 
@@ -245,9 +367,12 @@ export function isPrivateKey(input: string): boolean {
 
 export async function inspectPrivateKey(input: string): Promise<SshKey> {
   const match = /-----BEGIN OPENSSH PRIVATE KEY-----\s*([\s\S]*?)\s*-----END OPENSSH PRIVATE KEY-----/.exec(input)
-  if (!match) throw new SshError('Only the OpenSSH private key format is supported. PEM keys can be converted with "ssh-keygen -p -o".')
+  if (!match) {
+    throw new SshError('Only the OpenSSH private key format is supported. PEM keys can be converted with "ssh-keygen -p -o".')
+  }
   const bytes = base64ToBytes(match[1].replace(/\s+/g, ''))
   const magic = 'openssh-key-v1\0'
+  if (bytes.length < magic.length) throw new SshError('Not an openssh-key-v1 file.')
   for (let i = 0; i < magic.length; i++) {
     if (bytes[i] !== magic.charCodeAt(i)) throw new SshError('Not an openssh-key-v1 file.')
   }
@@ -260,6 +385,7 @@ export async function inspectPrivateKey(input: string): Promise<SshKey> {
   if (keyCount < 1) throw new SshError('The private key contains no public key.')
   const publicBlob = reader.string()
   const info = describeBlob(publicBlob)
+  const encrypted = cipher !== 'none'
 
   return {
     kind: 'private',
@@ -268,14 +394,41 @@ export async function inspectPrivateKey(input: string): Promise<SshKey> {
     comment: '',
     bits: info.bits,
     curve: info.curve,
-    encrypted: cipher !== 'none',
+    encrypted,
+    source: input.trim(),
     fingerprints: await fingerprints(publicBlob),
-    warnings: [
-      'This is a PRIVATE key. Never share it — only the matching public key belongs on a server.',
-      ...(cipher === 'none' ? ['The key is stored unencrypted; a passphrase would protect it at rest.'] : []),
-      ...warningsFor(info),
-    ],
+    checks: checksFor(info, 'private', encrypted),
+    warnings: warningsFor(info, 'private', encrypted),
   }
+}
+
+/**
+ * Split a paste into the keys it holds.
+ *
+ * A key is a line, except an OpenSSH private key, which is a whole PEM block
+ * and has to be kept together. Blank lines and `#` comments are dropped, so a
+ * whole authorized_keys or known_hosts file can be pasted in one go.
+ */
+export function parseKeyLines(input: string): string[] {
+  const lines = input.split(/\r?\n/)
+  const units: string[] = []
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith('#')) continue
+    if (/^-----BEGIN/.test(line)) {
+      const block = [line]
+      i += 1
+      while (i < lines.length && !/^-----END/.test(lines[i].trim())) {
+        block.push(lines[i].trim())
+        i += 1
+      }
+      if (i < lines.length) block.push(lines[i].trim())
+      units.push(block.join('\n'))
+      continue
+    }
+    units.push(line)
+  }
+  return units
 }
 
 export interface KnownHostEntry {

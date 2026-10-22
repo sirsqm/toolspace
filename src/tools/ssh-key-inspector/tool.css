@@ -1,0 +1,35 @@
+/* The example line can be longer than a narrow phone, so it wraps rather than
+   scrolling the page sideways. */
+.ts-ssh-example code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--faint);
+}
+
+/* The summary line reads as a status, not as body copy. */
+.ts-ssh-status {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Findings sit under the key's own rows, separated by a hairline. */
+.ts-k-card__body .ts-k-findings {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* The fingerprint is the point of the tool, so give the value room to breathe
+   on a narrow screen instead of squeezing it against the label. */
+.ts-k-card .ts-k-kv {
+  grid-template-columns: minmax(84px, 160px) 1fr auto;
+}
+
+@media (max-width: 520px) {
+  .ts-k-card .ts-k-kv {
+    grid-template-columns: 1fr auto;
+  }
+  .ts-k-card .ts-k-kv__label {
+    grid-column: 1 / -1;
+  }
+}

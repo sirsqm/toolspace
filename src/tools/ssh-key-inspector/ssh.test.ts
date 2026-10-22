@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { inspectPrivateKey, inspectPublicKey, isPrivateKey, parseKnownHosts, SshError } from './ssh'
+import {
+  inspectPrivateKey,
+  inspectPublicKey,
+  isPrivateKey,
+  parseKeyLines,
+  parseKnownHosts,
+  SshError,
+} from './ssh'
 
 const ED25519 = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHoQHKLJFmwFXwAp2U/EUAudoQdwazQqtzbjBOIASzHl ed@toolspace'
 const RSA = 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCbrxzAb9jpQP/bVH7AqtSwlRsXzWzhSyKjoLfi4jChXRxhJX5kUJoLRGhJCu7sBhd9+3YqgCyQHOY2SS5S/IhHv89xeRdmpaX75fgL6Z+Z+5atFsUc7N3aL0exQTvqB/GtalVexDGWz7YuEHdHZMljX4MMUZyYQ/ctfzvkV+wmSDOjm8fvD2RuqJTSY2zE7oNjqizew94PmMHAAjtRXTJaWBwuHbMpAdH7WgMoPVC/vbW8/xBUhzsub4JSrvx63fXlLvZf00EVlgEG+WIUU+fgGhLVQMOJ45hgYHn9hl2ONSAlXqX4FvLTyPH2nH8MiSwb/48s9doAMPfEu8exja83 rsa@toolspace'
@@ -94,5 +101,99 @@ describe('parseKnownHosts', () => {
   it('parses host entries and skips comments', () => {
     const entries = parseKnownHosts(`# a comment\ngithub.com ssh-ed25519 AAAA\n\nbad line`)
     expect(entries).toEqual([{ host: 'github.com', type: 'ssh-ed25519', key: 'AAAA' }])
+  })
+})
+
+/** Encode one SSH wire-format string field (length-prefixed). */
+function field(text: string): Uint8Array {
+  const body = new TextEncoder().encode(text)
+  const out = new Uint8Array(body.length + 4)
+  new DataView(out.buffer).setUint32(0, body.length)
+  out.set(body, 4)
+  return out
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+describe('key checks', () => {
+  it('passes a modern public key with no warnings', async () => {
+    const key = await inspectPublicKey(ED25519)
+    expect(key.checks).toHaveLength(1)
+    expect(key.checks[0].level).toBe('ok')
+    expect(key.warnings).toEqual([])
+  })
+
+  it('flags a 2048-bit ssh-rsa key as short, not weak', async () => {
+    const key = await inspectPublicKey(RSA)
+    expect(key.checks.map((check) => check.status)).toContain('Legacy')
+    expect(key.checks.map((check) => check.status)).toContain('Short')
+    expect(key.checks.some((check) => check.status === 'Weak')).toBe(false)
+  })
+
+  it('calls a DSA key deprecated', async () => {
+    const key = await inspectPublicKey(`ssh-dss ${toBase64(field('ssh-dss'))}`)
+    expect(key.label).toBe('DSA')
+    expect(key.checks[0]).toMatchObject({ level: 'danger', status: 'Deprecated' })
+    expect(key.warnings.join(' ')).toMatch(/DSA keys are deprecated/)
+  })
+
+  it('reports the passphrase state of a private key as a check', async () => {
+    const key = await inspectPrivateKey(ED25519_PRIVATE)
+    expect(key.checks).toContainEqual(
+      expect.objectContaining({ level: 'warn', status: 'Unsafe', title: 'Unencrypted' }),
+    )
+  })
+})
+
+describe('host column', () => {
+  it('keeps the host from a known_hosts line', async () => {
+    const key = await inspectPublicKey(`github.com ${ED25519}`)
+    expect(key.host).toBe('github.com')
+    expect(key.type).toBe('ssh-ed25519')
+  })
+
+  it('does not mistake authorized_keys options for a host', async () => {
+    expect((await inspectPublicKey(`command="echo hi",no-pty ${ED25519}`)).host).toBeUndefined()
+    expect((await inspectPublicKey(ED25519)).host).toBeUndefined()
+  })
+})
+
+describe('parseKeyLines', () => {
+  it('splits a file into one key per line', () => {
+    expect(parseKeyLines(`${ED25519}\r\n\n# a comment\n${RSA}\n`)).toEqual([ED25519, RSA])
+  })
+
+  it('keeps a private key block together', () => {
+    const units = parseKeyLines(`${ED25519}\n${ED25519_PRIVATE}\n`)
+    expect(units).toHaveLength(2)
+    expect(units[1].split('\n')).toHaveLength(7)
+    expect(units[1].endsWith('-----END OPENSSH PRIVATE KEY-----')).toBe(true)
+  })
+
+  it('returns nothing for blank input', () => {
+    expect(parseKeyLines('   \n\n')).toEqual([])
+  })
+})
+
+describe('malformed payloads', () => {
+  it('rejects a length prefix that runs past the end instead of throwing a RangeError', async () => {
+    const blob = new Uint8Array(8)
+    new DataView(blob.buffer).setUint32(4, 0xffffffff)
+    await expect(inspectPublicKey(`ssh-ed25519 ${toBase64(blob)}`)).rejects.toThrow(SshError)
+  })
+
+  it('rejects a private key block shorter than its magic', async () => {
+    const body = toBase64(new Uint8Array(4)).replace(/=+$/, '')
+    await expect(
+      inspectPrivateKey(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----`),
+    ).rejects.toThrow(SshError)
+  })
+
+  it('rejects a public key with no payload', async () => {
+    await expect(inspectPublicKey('ssh-ed25519')).rejects.toThrow(SshError)
   })
 })
