@@ -1,0 +1,25 @@
+.ts-jp-steps { margin-top: 2px; }
+
+.ts-jp-fix { color: var(--fg); }
+
+.ts-jp-live { display: flex; flex-direction: column; gap: 10px; }
+
+.ts-jp-live .ts-k-stats { margin: 0; }
+
+.ts-jp-value {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  font-size: 13px;
+  line-height: 1.5;
+  /* A long single-line preview must wrap, never push the page sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ts-jp-value + .ts-k-actions { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ts-jp-value { transition: none; }
+}
