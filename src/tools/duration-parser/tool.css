@@ -1,4 +1,22 @@
-.ts-duration-main { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--accent); }
+/* Screen-reader-only status line; the visible panels carry the same answer. */
+.ts-duration-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
-.ts-duration-name { width: 110px; flex: none; }
-.ts-duration-value { flex: 1; font-family: var(--mono); font-size: 13px; }
+/* The result blocks are hidden until there is a readable duration. The kit
+   containers set `display` (grid for stats), which beats the UA `[hidden]`
+   rule, so an empty first run would otherwise still show a bare stat strip. */
+.ts-duration-block[hidden] { display: none !important; }
+
+/* A huge paste can produce a long value string; keep it inside the row rather
+   than pushing the panel wider than 360px. */
+.ts-duration-block .ts-k-stat__value,
+.ts-duration-block .ts-k-out__body { overflow-wrap: anywhere; }
