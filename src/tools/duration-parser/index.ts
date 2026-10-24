@@ -108,8 +108,8 @@ const tool: Tool = {
       try {
         const ms = parseDuration(text)
         iso = toIsoDuration(ms)
-        primary.body.replaceChildren(formatDuration(ms, { long: true }))
-        primary.setMeta(`${formatDuration(ms)} · ${formatClock(ms)}`)
+        primary.body.replaceChildren(formatDuration(ms, { long: true, millis: true }))
+        primary.setMeta(`${formatDuration(ms, { millis: true })} · ${formatClock(ms)}`)
         primary.setLabel('Duration')
         primary.hidden = false
 
@@ -129,7 +129,7 @@ const tool: Tool = {
           ...UNITS.map((item) => copyRow(item.names[1] ?? item.names[0], formatAmount(ms / item.ms))),
         )
         error.hidden = true
-        srStatus.textContent = `${formatDuration(ms, { long: true })}, ${iso}.`
+        srStatus.textContent = `${formatDuration(ms, { long: true, millis: true })}, ${iso}.`
       } catch (err) {
         iso = ''
         hideResults()

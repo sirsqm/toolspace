@@ -80,6 +80,9 @@ describe('formatDuration', () => {
 
   it('can include milliseconds', () => {
     expect(formatDuration(1500, { millis: true })).toBe('1s 500ms')
+    expect(formatDuration(1500, { long: true, millis: true })).toBe('1 second 500 milliseconds')
+    expect(formatDuration(1000, { long: true, millis: true })).toBe('1 second')
+    expect(formatDuration(500, { long: true, millis: true })).toBe('500 milliseconds')
   })
 
   it('can pad every unit', () => {

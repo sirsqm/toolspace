@@ -19,4 +19,9 @@
 /* A huge paste can produce a long value string; keep it inside the row rather
    than pushing the panel wider than 360px. */
 .ts-duration-block .ts-k-stat__value,
-.ts-duration-block .ts-k-out__body { overflow-wrap: anywhere; }
+.ts-duration-block .ts-k-out__body,
+.ts-duration-block .ts-k-kv__value { overflow-wrap: anywhere; }
+
+/* A very large value makes the meta string extremely long; let it shrink and
+   ellipsize so the copy button stays inside the head at 360px. */
+.ts-duration-block .ts-k-out__meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
