@@ -120,6 +120,26 @@ const tool: Tool = {
         return
       }
 
+      // A half-parsed rule set scores nonsense (the declaration reads as an
+      // element), so hold the ranking back until the text is a real selector.
+      if (report.issues.length > 0) {
+        emptyState.hidden = true
+        output.replaceChildren(
+          el(
+            'div',
+            { class: 'ts-spec-empty' },
+            el('p', { class: 'ts-spec-empty__title' }, 'No ranking yet.'),
+            el(
+              'p',
+              { class: 'ts-spec-empty__body' },
+              'Fix the problem above and the score appears here — a score from text that is not a selector would only mislead.',
+            ),
+          ),
+        )
+        srStatus.textContent = `${plural(report.issues.length, 'problem', 'problems')} found, so no ranking was produced.`
+        return
+      }
+
       emptyState.hidden = true
       const pills: HTMLElement[] = [
         badge(`${report.scores.length} selector${report.scores.length === 1 ? '' : 's'}`),
@@ -155,9 +175,7 @@ const tool: Tool = {
       const lead = report.tiedTop
         ? `${report.scores.length} selectors. The top score ${formatSpecificity(report.max)} is shared by ${tiedCount} selectors.`
         : `${report.scores.length} selectors. Highest is ${report.sorted[0].selector} at ${formatSpecificity(report.max)}.`
-      srStatus.textContent = `${lead}${
-        report.issues.length > 0 ? ` ${plural(report.issues.length, 'problem', 'problems')} found.` : ''
-      }`
+      srStatus.textContent = lead
     }
 
     const copyAll = copyButton(() => rankingText(), { label: 'Copy ranking', size: 'sm' })
