@@ -1,5 +1,9 @@
 import {
+  actions,
   badge,
+  button,
+  chips,
+  copyButton,
   field,
   note,
   panel,
@@ -8,7 +12,33 @@ import {
 } from '../../core/components'
 import { el } from '../../core/dom'
 import type { Tool } from '../../core/types'
-import { analyse, compareSpecificity, formatSpecificity, type Specificity } from './specificity'
+import { analyse, formatSpecificity, specificityKey, type Specificity } from './specificity'
+
+/** Examples that show the shapes the scorer understands. */
+const EXAMPLES: { label: string; value: string }[] = [
+  { label: '.card .title', value: '.card .title' },
+  { label: '#main a:hover', value: '#main a:hover' },
+  { label: 'ul > li::before', value: 'ul > li::before' },
+  { label: '[type="text"]', value: '[type="text"]' },
+  { label: ':is(#a, .b)', value: ':is(#a, .b)' },
+  { label: ':not(.a) .b', value: ':not(.a) .b' },
+  { label: ':where(#a)', value: ':where(#a)' },
+  { label: 'a !important', value: 'a !important' },
+]
+
+/** "1 class", "2 classes", "1 element", … */
+function plural(count: number, singular: string, pluralForm: string): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`
+}
+
+/** The triple spelled out in words, e.g. "1 id · 2 classes". */
+function describe(s: Specificity): string {
+  const parts: string[] = []
+  if (s.ids) parts.push(plural(s.ids, 'id', 'ids'))
+  if (s.classes) parts.push(plural(s.classes, 'class', 'classes'))
+  if (s.elements) parts.push(plural(s.elements, 'element', 'elements'))
+  return parts.length > 0 ? parts.join(' · ') : 'nothing'
+}
 
 const tool: Tool = {
   slug: 'css-specificity',
@@ -17,39 +47,159 @@ const tool: Tool = {
   category: 'Design',
   keywords: ['css', 'specificity', 'selector', 'cascade', 'important', 'ranking'],
   render(root) {
-    const input = textarea({ rows: 6, placeholder: '.card .title, #main a:hover, ul > li', onInput: () => run() })
+    const input = textarea({
+      rows: 6,
+      placeholder: '.card .title, #main a:hover, ul > li',
+      onInput: () => run(),
+    })
+    input.id = 'ts-spec-input'
+    input.setAttribute('autocomplete', 'off')
+
     const summary = el('div', { class: 'ts-k-chips' })
+    const issues = el('div', { class: 'ts-spec-issues' })
     const output = el('div', { class: 'ts-spec-list' })
 
-    function run() {
-      output.replaceChildren()
-      summary.replaceChildren()
+    const emptyState = el(
+      'div',
+      { class: 'ts-spec-empty' },
+      el('p', { class: 'ts-spec-empty__title' }, 'Nothing to score yet.'),
+      el(
+        'p',
+        { class: 'ts-spec-empty__body' },
+        'Type a selector above, or pick an example. Scores read as (ids, classes, elements) — the bigger the leftmost number, the more specific the selector.',
+      ),
+    )
+
+    // One concise line for screen readers, so a keystroke is not announced
+    // eight separate times as the panels repaint.
+    const srStatus = el('p', { class: 'ts-spec-sr', role: 'status', 'aria-live': 'polite' })
+
+    const clear = button('Clear', {
+      icon: 'eraser',
+      variant: 'ghost',
+      onClick: () => {
+        input.value = ''
+        run()
+        input.focus()
+      },
+    })
+
+    function rankingText(): string {
       const report = analyse(input.value)
-      if (report.scores.length === 0) return
-      summary.append(
+      return report.sorted
+        .map(
+          (score) =>
+            `${formatSpecificity(score.specificity)}\t${score.selector}${score.important ? ' !important' : ''}`,
+        )
+        .join('\n')
+    }
+
+    function renderIssues(messages: { selector: string; message: string }[]) {
+      issues.replaceChildren(
+        ...messages.map((issue) =>
+          el(
+            'p',
+            { class: 'ts-k-note ts-k-note--warn' },
+            el('code', { class: 'ts-spec-issue__selector' }, issue.selector),
+            ` — ${issue.message}`,
+          ),
+        ),
+      )
+      issues.hidden = messages.length === 0
+    }
+
+    function run() {
+      const report = analyse(input.value)
+      summary.replaceChildren()
+      renderIssues(report.issues)
+
+      if (report.scores.length === 0) {
+        emptyState.hidden = false
+        output.replaceChildren(emptyState)
+        srStatus.textContent = 'Enter a selector to score it.'
+        return
+      }
+
+      emptyState.hidden = true
+      const pills: HTMLElement[] = [
         badge(`${report.scores.length} selector${report.scores.length === 1 ? '' : 's'}`),
         badge(`highest ${formatSpecificity(report.max)}`, 'accent'),
-      )
-      const isMax = (score: Specificity) => compareSpecificity(score, report.max) === 0 && report.scores.length > 1
+      ]
+      if (report.tiedTop) pills.push(badge('top score is tied', 'warn'))
+      summary.append(...pills)
+
+      const maxKey = specificityKey(report.max)
+      const tiedCount = report.scores.filter((score) => specificityKey(score.specificity) === maxKey).length
+      const isTop = (score: Specificity) => report.tiedTop && specificityKey(score) === maxKey
+
       output.replaceChildren(
         ...report.sorted.map((score) =>
           el(
             'div',
-            { class: `ts-spec-row${isMax(score.specificity) ? ' ts-spec-top' : ''}` },
-            el('code', { class: 'ts-spec-selector' }, score.selector),
-            el('span', { class: 'ts-spec-score' }, formatSpecificity(score.specificity)),
-            score.important ? badge('!important', 'danger') : null,
+            {
+              class: `ts-spec-row${isTop(score.specificity) ? ' ts-spec-top' : ''}`,
+              'data-key': specificityKey(score.specificity),
+            },
+            el(
+              'div',
+              { class: 'ts-spec-row__main' },
+              el('code', { class: 'ts-spec-selector' }, score.selector),
+              el('span', { class: 'ts-spec-score' }, formatSpecificity(score.specificity)),
+              score.important ? badge('!important', 'danger') : null,
+            ),
+            el('span', { class: 'ts-spec-breakdown' }, describe(score.specificity)),
           ),
         ),
       )
+
+      const lead = report.tiedTop
+        ? `${report.scores.length} selectors. The top score ${formatSpecificity(report.max)} is shared by ${tiedCount} selectors.`
+        : `${report.scores.length} selectors. Highest is ${report.sorted[0].selector} at ${formatSpecificity(report.max)}.`
+      srStatus.textContent = `${lead}${
+        report.issues.length > 0 ? ` ${plural(report.issues.length, 'problem', 'problems')} found.` : ''
+      }`
     }
+
+    const copyAll = copyButton(() => rankingText(), { label: 'Copy ranking', size: 'sm' })
 
     root.append(
       toolLayout(
         { wide: true },
-        panel({ title: 'Selectors', icon: 'code' }, field(input, { label: 'Selectors (comma-separated)' }), summary),
-        panel({ title: 'Ranking', icon: 'chart' }, output),
-        note('Scores are shown as (ids, classes, elements). Attribute and pseudo-class selectors count as classes; :where() counts as nothing.'),
+        panel(
+          { title: 'Selectors', icon: 'code' },
+          field(input, {
+            label: 'Selectors',
+            grow: true,
+            forId: input.id,
+            hint: 'Paste one selector, a comma-separated list, or a whole rule set — each part is scored on its own.',
+          }),
+          actions(clear),
+          chips(
+            EXAMPLES.map((example) => ({
+              label: example.label,
+              title: `Use ${example.value}`,
+              onClick: (value) => {
+                input.value = value
+                run()
+                input.focus()
+              },
+            })),
+          ),
+          summary,
+          issues,
+        ),
+        panel(
+          { title: 'Ranking', icon: 'chart' },
+          el(
+            'div',
+            { class: 'ts-spec-head' },
+            el('span', { class: 'ts-spec-head__hint' }, 'Most specific first'),
+            copyAll,
+          ),
+          output,
+        ),
+        note('Attribute and pseudo-class selectors count as classes; pseudo-elements count as elements. :where() adds nothing, while :is(), :not() and :has() take their most specific argument.'),
+        srStatus,
       ),
     )
 

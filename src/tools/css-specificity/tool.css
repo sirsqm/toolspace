@@ -2,8 +2,8 @@
 
 .ts-spec-row {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-left-width: 3px;
@@ -14,7 +14,61 @@
   font-size: 13px;
 }
 
+.ts-spec-row__main {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
 .ts-spec-top { border-left-color: var(--accent-strong); }
-.ts-spec-selector { flex: 1; overflow-wrap: anywhere; }
+
+.ts-spec-selector {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+}
+
 .ts-spec-score { color: var(--accent-strong); flex: none; }
-.ts-spec-important { flex: none; color: var(--danger); font-size: 12px; }
+.ts-spec-breakdown { color: var(--faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+
+/* Ranking header: a hint on the left, the copy action on the right. */
+.ts-spec-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ts-spec-head__hint { font-size: var(--text-xs); color: var(--faint); }
+.ts-spec-head .ts-k-btn { margin-left: auto; }
+
+/* First-run state, before any selector is typed. */
+.ts-spec-empty {
+  padding: 18px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.ts-spec-empty__title { margin: 0 0 6px; font-weight: 600; color: var(--fg); }
+.ts-spec-empty__body { margin: 0; font-size: var(--text-sm); line-height: 1.5; color: var(--faint); }
+
+/* Invalid input, e.g. a pasted rule set or an unbalanced bracket. */
+.ts-spec-issues { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ts-spec-issues[hidden] { display: none; }
+.ts-spec-issue__selector { overflow-wrap: anywhere; }
+
+/* Screen-reader-only status line; the visible panels carry the same answer. */
+.ts-spec-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
