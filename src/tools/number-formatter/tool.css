@@ -1,0 +1,18 @@
+/* Screen-reader-only status line; the visible result blocks carry the same
+   answer, so a keystroke is announced once rather than twice. */
+.ts-numfmt-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* `panel`, `field` and `outputBlock` all set their own `display`, which beats
+   the UA `[hidden]` rule. These elements are toggled hidden, so they need an
+   explicit rule of their own. */
+.ts-numfmt-hide[hidden] { display: none !important; }

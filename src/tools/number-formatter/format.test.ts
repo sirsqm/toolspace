@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { abbreviate, formatNumber, NumberError, numberToWords, parseNumber, representations, toFixed } from './format'
+import { abbreviate, formatNumber, isValidLocale, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
 
 describe('parseNumber', () => {
   it('reads a plain number', () => {
@@ -132,5 +132,91 @@ describe('representations', () => {
     const lookup = Object.fromEntries(representations(1.5))
     expect(lookup['Binary']).toBe('—')
     expect(lookup['Hexadecimal']).toBe('—')
+  })
+})
+
+describe('parseNumber edge cases', () => {
+  it('reports what it could not read', () => {
+    expect(() => parseNumber('abc')).toThrow(/no digits/)
+    expect(() => parseNumber('   ')).toThrow(/Enter a number/)
+  })
+
+  it('reads a lone decimal mark as zero point something', () => {
+    expect(parseNumber('.5')).toBe(0.5)
+    expect(parseNumber(',5')).toBe(0.5)
+  })
+
+  it('keeps a leading sign through accounting parentheses', () => {
+    expect(parseNumber('(-1,200)')).toBe(1200)
+  })
+
+  it('treats a three-digit tail as grouping', () => {
+    expect(parseNumber('1,500')).toBe(1500)
+    expect(parseNumber('1.500')).toBe(1500)
+  })
+
+  it('handles very large and very small magnitudes', () => {
+    expect(parseNumber('9007199254740993')).toBe(9007199254740992)
+    expect(parseNumber('0.0000001')).toBe(1e-7)
+  })
+})
+
+describe('normalizeDecimals', () => {
+  it('returns undefined for a blank or junk field', () => {
+    expect(normalizeDecimals('')).toBeUndefined()
+    expect(normalizeDecimals('   ')).toBeUndefined()
+    expect(normalizeDecimals('abc')).toBeUndefined()
+  })
+
+  it('keeps a valid count', () => {
+    expect(normalizeDecimals('0')).toBe(0)
+    expect(normalizeDecimals('4')).toBe(4)
+    expect(normalizeDecimals('2.7')).toBe(2)
+  })
+
+  it('clamps to the range Intl accepts', () => {
+    expect(normalizeDecimals('-3')).toBe(0)
+    expect(normalizeDecimals('1000')).toBe(100)
+  })
+})
+
+describe('isValidLocale', () => {
+  it('accepts real tags and rejects invented ones', () => {
+    expect(isValidLocale('en-US')).toBe(true)
+    expect(isValidLocale('de-DE')).toBe(true)
+    expect(isValidLocale('')).toBe(false)
+    expect(isValidLocale('nope-nope')).toBe(false)
+  })
+})
+
+describe('representations', () => {
+  it('includes a word form for whole numbers only', () => {
+    const whole = representations(1234, 'en-US')
+    expect(whole.find(([label]) => label === 'Words')?.[1]).toBe('one thousand two hundred thirty-four')
+    const fractional = representations(12.5, 'en-US')
+    expect(fractional.find(([label]) => label === 'Words')).toBeUndefined()
+  })
+
+  it('omits the word form when the value is too large to write out', () => {
+    expect(representations(1e15).find(([label]) => label === 'Words')).toBeUndefined()
+  })
+
+  it('does not attempt a binary form for fractions or negatives', () => {
+    expect(representations(12.5).find(([label]) => label === 'Binary')?.[1]).toBe('—')
+    expect(representations(-4).find(([label]) => label === 'Binary')?.[1]).toBe('—')
+  })
+})
+
+describe('formatNumber option errors', () => {
+  it('rejects a locale it cannot build', () => {
+    expect(() => formatNumber(1, { locale: 'not a locale' })).toThrow(NumberError)
+  })
+
+  it('rejects a bad currency code', () => {
+    expect(() => formatNumber(1, { style: 'currency', currency: 'DOLLARS' })).toThrow(NumberError)
+  })
+
+  it('formats compact long notation when asked', () => {
+    expect(formatNumber(1234567, { locale: 'en-US', compact: true, compactDisplay: 'long' })).toBe('1.2 million')
   })
 })

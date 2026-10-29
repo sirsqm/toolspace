@@ -16,9 +16,10 @@ export interface ParseOptions {
 
 /** Parse a human number, tolerating grouping separators and a currency symbol. */
 export function parseNumber(input: string, options: ParseOptions = {}): number {
-  let text = input.trim()
-  if (!text) throw new NumberError('Enter a number')
+  const raw = input.trim()
+  if (!raw) throw new NumberError('Enter a number to format')
 
+  let text = raw
   let negative = false
   if (/^\(.*\)$/.test(text)) {
     negative = true
@@ -33,9 +34,10 @@ export function parseNumber(input: string, options: ParseOptions = {}): number {
     text = text.slice(1)
   }
   // Drop anything that is not a digit or a separator: currency symbols, unit
-  // suffixes, stray letters.
+  // suffixes, stray letters. Reject outright when nothing numeric survives, so
+  // "abc" cannot silently become a number.
   text = text.replace(/[^\d.,]/g, '')
-  if (!/\d/.test(text)) throw new NumberError(`"${input.trim()}" is not a number`)
+  if (!/\d/.test(text)) throw new NumberError(`"${raw}" has no digits to read`)
 
   if (options.detectSeparators ?? true) {
     const lastComma = text.lastIndexOf(',')
@@ -55,8 +57,40 @@ export function parseNumber(input: string, options: ParseOptions = {}): number {
   }
 
   const value = Number(text)
-  if (!Number.isFinite(value)) throw new NumberError(`"${input.trim()}" is not a number`)
+  if (!Number.isFinite(value)) throw new NumberError(`"${raw}" is not a number`)
   return negative ? -value : value
+}
+
+/** The range Intl accepts for fraction digits. */
+export const DECIMAL_LIMITS = { min: 0, max: 100 } as const
+
+/**
+ * Turn the raw decimals field into an Intl-safe digit count.
+ *
+ * An empty field means "use the default" rather than zero, and anything above
+ * the Intl ceiling is clamped instead of throwing a RangeError out of the
+ * formatter. Returns `undefined` when the caller should keep Intl's default.
+ */
+export function normalizeDecimals(raw: string): number | undefined {
+  const text = raw.trim()
+  if (!text) return undefined
+  const value = Number(text)
+  if (!Number.isFinite(value)) return undefined
+  const whole = Math.trunc(value)
+  if (whole < DECIMAL_LIMITS.min) return DECIMAL_LIMITS.min
+  if (whole > DECIMAL_LIMITS.max) return DECIMAL_LIMITS.max
+  return whole
+}
+
+/** True when the browser can build an Intl formatter for this locale tag. */
+export function isValidLocale(code: string): boolean {
+  const tag = code.trim()
+  if (!tag) return false
+  try {
+    return Intl.NumberFormat.supportedLocalesOf([tag]).length > 0
+  } catch {
+    return false
+  }
 }
 
 export interface FormatOptions {
@@ -67,6 +101,7 @@ export interface FormatOptions {
   minimumFractionDigits?: number
   maximumFractionDigits?: number
   compact?: boolean
+  compactDisplay?: 'short' | 'long'
   signDisplay?: 'auto' | 'always' | 'never' | 'exceptZero'
 }
 
@@ -78,6 +113,7 @@ export function formatNumber(value: number, options: FormatOptions = {}): string
     return new Intl.NumberFormat(locale, {
       style,
       notation: compact ? 'compact' : 'standard',
+      compactDisplay: compact ? rest.compactDisplay ?? 'short' : undefined,
       currency: style === 'currency' ? options.currency ?? 'USD' : undefined,
       unit: style === 'unit' ? options.unit ?? 'kilometer' : undefined,
       minimumFractionDigits: rest.minimumFractionDigits,
@@ -152,7 +188,7 @@ export function numberToWords(value: number): string {
 
 /** Common representations of a value, for the side-by-side list. */
 export function representations(value: number, locale = 'en-US'): [string, string][] {
-  return [
+  const rows: [string, string][] = [
     ['Default', formatNumber(value, { locale })],
     ['Plain', String(value)],
     ['Compact', formatNumber(value, { locale, compact: true })],
@@ -164,4 +200,8 @@ export function representations(value: number, locale = 'en-US'): [string, strin
     ['Binary', value >= 0 && Number.isInteger(value) ? value.toString(2) : '—'],
     ['Hexadecimal', value >= 0 && Number.isInteger(value) ? `0x${value.toString(16)}` : '—'],
   ]
+  if (Number.isInteger(value) && Math.abs(value) < 1e15) {
+    rows.push(['Words', numberToWords(value)])
+  }
+  return rows
 }
