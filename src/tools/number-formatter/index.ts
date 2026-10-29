@@ -16,7 +16,7 @@ import {
 } from '../../core/components'
 import { el } from '../../core/dom'
 import type { Tool } from '../../core/types'
-import { isValidLocale, normalizeDecimals, parseNumber, representations } from './format'
+import { formatNumber, isValidLocale, normalizeDecimals, parseNumber, representations } from './format'
 
 const LOCALES = ['en-US', 'en-GB', 'de-DE', 'fr-FR', 'es-ES', 'hi-IN', 'ja-JP']
 
@@ -149,15 +149,15 @@ const tool: Tool = {
       try {
         const value = parseNumber(text)
         const digits = normalizeDecimals(decimals.value)
-        main = format({
-          value,
-          locale: localeCode,
+        main = formatNumber(value, {
+          locale: unsupported ? 'en-US' : localeCode,
           style: style.value as 'decimal' | 'currency' | 'percent' | 'unit',
           currency: currency.value.trim(),
           unit: unit.value.trim(),
-          digits,
+          minimumFractionDigits: digits,
+          maximumFractionDigits: digits,
           compact,
-          sign: sign.value as 'auto' | 'always' | 'never' | 'exceptZero',
+          signDisplay: sign.value as 'auto' | 'always' | 'never' | 'exceptZero',
         })
 
         result.body.replaceChildren(main)
@@ -181,39 +181,6 @@ const tool: Tool = {
         error.textContent = err instanceof Error ? err.message : 'Could not format that number.'
         error.hidden = false
         srStatus.textContent = error.textContent
-      }
-    }
-
-    function format(options: {
-      value: number
-      locale: string
-      style: 'decimal' | 'currency' | 'percent' | 'unit'
-      currency: string
-      unit: string
-      digits: number | undefined
-      compact: boolean
-      sign: 'auto' | 'always' | 'never' | 'exceptZero'
-    }): string {
-      if (options.style === 'currency' && !/^[A-Za-z]{3}$/.test(options.currency)) {
-        throw new Error(`"${options.currency || '(empty)'}" is not a three-letter currency code — try USD or EUR.`)
-      }
-      if (options.style === 'unit' && !options.unit) {
-        throw new Error('Enter a unit for the unit format — try kilometer, byte or liter.')
-      }
-      const safeLocale = isValidLocale(options.locale) ? options.locale : 'en-US'
-      try {
-        return new Intl.NumberFormat(safeLocale, {
-          style: options.style,
-          notation: options.compact ? 'compact' : 'standard',
-          currency: options.style === 'currency' ? options.currency.toUpperCase() : undefined,
-          unit: options.style === 'unit' ? options.unit : undefined,
-          minimumFractionDigits: options.digits,
-          maximumFractionDigits: options.digits,
-          signDisplay: options.sign,
-        }).format(options.value)
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : 'that option is not supported'
-        throw new Error(`Could not format with these options: ${detail}`)
       }
     }
 

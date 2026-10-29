@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { abbreviate, formatNumber, isValidLocale, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
+import { abbreviate, formatNumber, isCurrencyCode, isValidLocale, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
 
 describe('parseNumber', () => {
   it('reads a plain number', () => {
@@ -218,5 +218,25 @@ describe('formatNumber option errors', () => {
 
   it('formats compact long notation when asked', () => {
     expect(formatNumber(1234567, { locale: 'en-US', compact: true, compactDisplay: 'long' })).toBe('1.2 million')
+  })
+})
+
+describe('isCurrencyCode', () => {
+  it('accepts three letters and rejects anything else', () => {
+    expect(isCurrencyCode('USD')).toBe(true)
+    expect(isCurrencyCode('eur')).toBe(true)
+    expect(isCurrencyCode('DOLLARS')).toBe(false)
+    expect(isCurrencyCode('')).toBe(false)
+  })
+})
+
+describe('formatNumber plain-language errors', () => {
+  it('names the offending currency code', () => {
+    expect(() => formatNumber(1, { style: 'currency', currency: 'DOLLARS' })).toThrow(/"DOLLARS"/)
+    expect(() => formatNumber(1, { style: 'currency', currency: '' })).toThrow(/three-letter currency code/)
+  })
+
+  it('asks for a unit when the unit format has none', () => {
+    expect(() => formatNumber(1, { style: 'unit', unit: '  ' })).toThrow(/Enter a unit/)
   })
 })

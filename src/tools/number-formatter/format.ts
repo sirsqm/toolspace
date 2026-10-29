@@ -105,10 +105,25 @@ export interface FormatOptions {
   signDisplay?: 'auto' | 'always' | 'never' | 'exceptZero'
 }
 
-/** Format a number with Intl, falling back to plain text on a bad option. */
+/** True when the code looks like an ISO 4217 currency. */
+export function isCurrencyCode(code: string): boolean {
+  return /^[A-Za-z]{3}$/.test(code.trim())
+}
+
+/**
+ * Format a number with Intl, turning bad options into plain-language errors
+ * rather than leaking an Intl RangeError.
+ */
 export function formatNumber(value: number, options: FormatOptions = {}): string {
   if (!Number.isFinite(value)) throw new NumberError('Only finite numbers can be formatted')
   const { locale = 'en-US', style = 'decimal', compact = false, ...rest } = options
+  if (style === 'currency' && !isCurrencyCode(options.currency ?? '')) {
+    const shown = options.currency?.trim() || '(empty)'
+    throw new NumberError(`"${shown}" is not a three-letter currency code — try USD or EUR.`)
+  }
+  if (style === 'unit' && !(options.unit ?? '').trim()) {
+    throw new NumberError('Enter a unit for the unit format — try kilometer, byte or liter.')
+  }
   try {
     return new Intl.NumberFormat(locale, {
       style,
