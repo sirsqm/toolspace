@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { abbreviate, formatNumber, isCurrencyCode, isValidLocale, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
+import { abbreviate, exactIntegerDigits, formatNumber, integerToWords, isCurrencyCode, isSupportedCurrency, isValidLocale, isValidUnit, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
 
 describe('parseNumber', () => {
   it('reads a plain number', () => {
@@ -112,9 +112,13 @@ describe('numberToWords', () => {
     expect(numberToWords(-5)).toBe('negative five')
   })
 
-  it('rejects fractions and huge values', () => {
+  it('rejects fractions and values past the scale table', () => {
     expect(() => numberToWords(1.5)).toThrow(NumberError)
-    expect(() => numberToWords(1e16)).toThrow(NumberError)
+    expect(() => numberToWords(1e25)).toThrow(NumberError)
+  })
+
+  it('writes integers past the old 1e15 cap', () => {
+    expect(numberToWords(1e15)).toBe('one quadrillion')
   })
 })
 
@@ -197,8 +201,8 @@ describe('representations', () => {
     expect(fractional.find(([label]) => label === 'Words')).toBeUndefined()
   })
 
-  it('omits the word form when the value is too large to write out', () => {
-    expect(representations(1e15).find(([label]) => label === 'Words')).toBeUndefined()
+  it('omits the word form when the value is past the scale table', () => {
+    expect(representations(1e25).find(([label]) => label === 'Words')).toBeUndefined()
   })
 
   it('does not attempt a binary form for fractions or negatives', () => {
@@ -238,5 +242,169 @@ describe('formatNumber plain-language errors', () => {
 
   it('asks for a unit when the unit format has none', () => {
     expect(() => formatNumber(1, { style: 'unit', unit: '  ' })).toThrow(/Enter a unit/)
+  })
+})
+
+describe('parseNumber unicode signs', () => {
+  it('reads a minus copied from a document', () => {
+    expect(parseNumber('\u22122500')).toBe(-2500)
+    expect(parseNumber('\u20131500')).toBe(-1500)
+    expect(parseNumber('\uff0d42')).toBe(-42)
+    expect(parseNumber('\u2212$1,200.50')).toBe(-1200.5)
+  })
+
+  it('still reads a plain hyphen', () => {
+    expect(parseNumber('-7')).toBe(-7)
+  })
+})
+
+describe('isValidLocale strictness', () => {
+  it('accepts real tags, with and without a region', () => {
+    expect(isValidLocale('en')).toBe(true)
+    expect(isValidLocale('en-US')).toBe(true)
+    expect(isValidLocale('zh-Hant')).toBe(true)
+    expect(isValidLocale('es-419')).toBe(true)
+  })
+
+  it('rejects anything that is not a locale tag', () => {
+    expect(isValidLocale('')).toBe(false)
+    expect(isValidLocale('english')).toBe(false)
+    expect(isValidLocale('en US')).toBe(false)
+    expect(isValidLocale('e')).toBe(false)
+    expect(isValidLocale('-US')).toBe(false)
+  })
+})
+
+describe('isValidUnit', () => {
+  it('knows the units Intl can format', () => {
+    expect(isValidUnit('kilometer')).toBe(true)
+    expect(isValidUnit('byte')).toBe(true)
+    expect(isValidUnit('liter')).toBe(true)
+    expect(isValidUnit('celsius')).toBe(true)
+  })
+
+  it('rejects a made-up unit rather than letting Intl drop it', () => {
+    expect(isValidUnit('kilometres')).toBe(false)
+    expect(isValidUnit('')).toBe(false)
+    expect(isValidUnit('   ')).toBe(false)
+  })
+})
+
+describe('isSupportedCurrency', () => {
+  it('accepts codes the browser knows and rejects invented ones', () => {
+    expect(isSupportedCurrency('USD')).toBe(true)
+    expect(isSupportedCurrency('eur')).toBe(true)
+    expect(isSupportedCurrency('XYZ')).toBe(false)
+    expect(isSupportedCurrency('DOLLARS')).toBe(false)
+  })
+})
+
+describe('formatNumber option support checks', () => {
+  it('refuses a currency the browser has no data for', () => {
+    expect(() => formatNumber(1, { style: 'currency', currency: 'XYZ' })).toThrow(/no data for "XYZ"/)
+  })
+
+  it('refuses a unit the browser cannot format', () => {
+    expect(() => formatNumber(1, { style: 'unit', unit: 'kilometres' })).toThrow(/no unit "kilometres"/)
+  })
+
+  it('formats a unit it does know', () => {
+    expect(formatNumber(5, { locale: 'en-US', style: 'unit', unit: 'kilometer' })).toBe('5 km')
+  })
+})
+
+describe('integerToWords', () => {
+  it('spells integers beyond the safe double range exactly', () => {
+    expect(integerToWords('9007199254740993')).toBe(
+      'nine quadrillion seven trillion one hundred ninety-nine billion two hundred fifty-four million seven hundred forty thousand nine hundred ninety-three',
+    )
+  })
+
+  it('keeps every digit of a huge paste', () => {
+    expect(integerToWords('12345678901234567890')).toBe(
+      'twelve quintillion three hundred forty-five quadrillion six hundred seventy-eight trillion nine hundred one billion two hundred thirty-four million five hundred sixty-seven thousand eight hundred ninety',
+    )
+  })
+
+  it('reads a negative sign', () => {
+    expect(integerToWords('-1000')).toBe('negative one thousand')
+  })
+
+  it('rejects a non-integer string and a value too large to name', () => {
+    expect(() => integerToWords('1.5')).toThrow(NumberError)
+    expect(() => integerToWords(`1${'0'.repeat(24)}`)).toThrow(/too large/)
+  })
+})
+
+describe('numberToWords past the safe range', () => {
+  it('still writes a huge whole number', () => {
+    expect(numberToWords(1e21)).toBe('one sextillion')
+  })
+})
+
+describe('representations with the exact input', () => {
+  it('spells the digits the user typed, not the rounded double', () => {
+    const lookup = Object.fromEntries(representations(9007199254740992, 'en-US', '9007199254740993'))
+    expect(lookup['Words']).toContain('nine hundred ninety-three')
+  })
+
+  it('omits the word form when there is nothing to spell', () => {
+    expect(representations(12.5, 'en-US', '12.5').find(([label]) => label === 'Words')).toBeUndefined()
+  })
+
+  it('shows the typed digits in the plain, binary and hex rows', () => {
+    const lookup = Object.fromEntries(representations(9007199254740992, 'en-US', '9007199254740993'))
+    expect(lookup['Plain']).toBe('9007199254740993')
+    expect(lookup['Binary']).toBe('100000000000000000000000000000000000000000000000000001')
+    expect(lookup['Hexadecimal']).toBe('0x20000000000001')
+  })
+})
+
+describe('parseNumber scientific notation', () => {
+  it('reads an exponent instead of dropping the e', () => {
+    expect(parseNumber('1e6')).toBe(1_000_000)
+    expect(parseNumber('2.5e3')).toBe(2500)
+    expect(parseNumber('1E-3')).toBe(0.001)
+  })
+
+  it('keeps a leading sign in front of the exponent', () => {
+    expect(parseNumber('-1.5e2')).toBe(-150)
+    expect(parseNumber('(−2e2)')).toBe(200)
+  })
+
+  it('still reads a plain number with no exponent', () => {
+    expect(parseNumber('1234')).toBe(1234)
+  })
+})
+
+describe('parseNumber overflow', () => {
+  it('names an overflow instead of claiming it is not a number', () => {
+    expect(() => parseNumber(`1${'0'.repeat(309)}`)).toThrow(/too large/)
+  })
+
+  it('reads a huge exponent as an overflow too', () => {
+    expect(() => parseNumber('1e400')).toThrow(/too large/)
+  })
+})
+
+describe('exactIntegerDigits', () => {
+  it('returns the typed digits when the double rounds them', () => {
+    expect(exactIntegerDigits(9007199254740992, '9007199254740993')).toBe('9007199254740993')
+  })
+
+  it('returns undefined when the double already matches the input', () => {
+    expect(exactIntegerDigits(42, '42')).toBeUndefined()
+    expect(exactIntegerDigits(42, ' 42 ')).toBeUndefined()
+  })
+
+  it('returns undefined for anything that is not a plain whole number', () => {
+    expect(exactIntegerDigits(12.5, '12.5')).toBeUndefined()
+    expect(exactIntegerDigits(1200, '1,200')).toBeUndefined()
+    expect(exactIntegerDigits(1e6, '1e6')).toBeUndefined()
+    expect(exactIntegerDigits(1, undefined)).toBeUndefined()
+  })
+
+  it('understands a unicode minus pasted in front of a big integer', () => {
+    expect(exactIntegerDigits(-9007199254740992, '\u22129007199254740993')).toBe('-9007199254740993')
   })
 })

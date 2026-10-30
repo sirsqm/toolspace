@@ -16,3 +16,12 @@
    the UA `[hidden]` rule. These elements are toggled hidden, so they need an
    explicit rule of their own. */
 .ts-numfmt-hide[hidden] { display: none !important; }
+
+/* The example chips get a visible label so they read as a group rather than a
+   loose row of buttons. */
+.ts-numfmt-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ts-numfmt-examples .ts-k-label { margin: 0; }

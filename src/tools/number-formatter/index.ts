@@ -3,6 +3,7 @@ import {
   button,
   checkbox,
   chips,
+  copyButton,
   copyRow,
   field,
   grid,
@@ -16,7 +17,7 @@ import {
 } from '../../core/components'
 import { el } from '../../core/dom'
 import type { Tool } from '../../core/types'
-import { formatNumber, isValidLocale, normalizeDecimals, parseNumber, representations } from './format'
+import { exactIntegerDigits, formatNumber, isValidLocale, normalizeDecimals, parseNumber, representations } from './format'
 
 const LOCALES = ['en-US', 'en-GB', 'de-DE', 'fr-FR', 'es-ES', 'hi-IN', 'ja-JP']
 
@@ -28,6 +29,16 @@ const EXAMPLES: { label: string; value: string }[] = [
   { label: '$1,299.00', value: '$1,299.00' },
   { label: '(1,500)', value: '(1,500)' },
   { label: '42', value: '42' },
+]
+
+/** Sizes and units: the values where grouping and compact form matter most. */
+const UNIT_EXAMPLES: { label: string; value: string }[] = [
+  { label: '1024', value: '1024' },
+  { label: '1500000', value: '1500000' },
+  { label: '0.5', value: '0.5' },
+  { label: '9.81', value: '9.81' },
+  { label: '−273.15', value: '-273.15' },
+  { label: '1e6', value: '1e6' },
 ]
 
 const tool: Tool = {
@@ -46,7 +57,7 @@ const tool: Tool = {
     const inputHint = el(
       'p',
       { class: 'ts-k-hint', id: 'ts-numfmt-hint' },
-      'Accepts grouping marks, a leading sign, a currency symbol and accounting parentheses: 1,234.56 · 1.234,56 · −1 500 · ($1,200).',
+        'Accepts grouping marks, a leading sign, a currency symbol, accounting parentheses and scientific notation: 1,234.56 · 1.234,56 · −1 500 · ($1,200) · 1e6. A minus copied from a document is understood too.',
     )
     input.setAttribute('aria-describedby', inputHint.id)
 
@@ -118,10 +129,16 @@ const tool: Tool = {
 
     const rows = kvList()
     let main = ''
+    let allText = ''
     const result = outputBlock('', { label: 'Formatted', copy: () => main })
     result.classList.add('ts-numfmt-hide')
     const empty = note('Type a number above — or pick an example — to see it formatted for the chosen locale.', 'neutral')
-    const otherPanel = panel({ title: 'Other representations', icon: 'hash' }, rows)
+    const copyAll = copyButton(() => allText, { label: 'Copy all', size: 'sm' })
+    const otherPanel = panel(
+      { title: 'Other representations', icon: 'hash' },
+      actions(copyAll),
+      rows,
+    )
     otherPanel.classList.add('ts-numfmt-hide')
 
     function hideResults() {
@@ -162,14 +179,23 @@ const tool: Tool = {
 
         result.body.replaceChildren(main)
         result.setLabel('Formatted')
-        result.setMeta(unsupported ? 'locale not available — used a fallback' : '')
+        // Intl formats a double, so a pasted integer past 2^53 comes back
+        // rounded. Say so and show the digits that were actually typed.
+        const exact = exactIntegerDigits(value, text)
+        result.setMeta(
+          unsupported
+            ? 'locale not available — used a fallback'
+            : exact
+              ? `Intl formats a double; your exact digits are ${exact}`
+              : '',
+        )
         result.hidden = false
         empty.hidden = true
         otherPanel.hidden = false
 
-        rows.replaceChildren(
-          ...representations(value, unsupported ? 'en-US' : localeCode).map(([label, out]) => copyRow(label, out)),
-        )
+        const lines = representations(value, unsupported ? 'en-US' : localeCode, text)
+        allText = lines.map(([label, out]) => `${label}: ${out}`).join('\n')
+        rows.replaceChildren(...lines.map(([label, out]) => copyRow(label, out)))
         error.hidden = true
         srStatus.textContent = `Formatted value ${main}.`
       } catch (err) {
@@ -200,6 +226,31 @@ const tool: Tool = {
         },
       })),
     )
+    exampleRow.setAttribute('role', 'group')
+    exampleRow.setAttribute('aria-label', 'Example numbers')
+
+    const unitRow = chips(
+      UNIT_EXAMPLES.map((example) => ({
+        label: example.label,
+        title: `Use ${example.value}`,
+        onClick: () => {
+          input.value = example.value
+          run()
+          input.focus()
+        },
+      })),
+    )
+    unitRow.setAttribute('role', 'group')
+    unitRow.setAttribute('aria-label', 'Example sizes and measurements')
+
+    const examples = el(
+      'div',
+      { class: 'ts-numfmt-examples' },
+      el('p', { class: 'ts-k-label' }, 'Try an example'),
+      exampleRow,
+      el('p', { class: 'ts-k-label' }, 'Sizes and measurements'),
+      unitRow,
+    )
 
     root.append(
       toolLayout(
@@ -220,7 +271,7 @@ const tool: Tool = {
           actions(button('Clear', { icon: 'eraser', variant: 'ghost', onClick: () => { input.value = ''; run(); input.focus() } })),
           error,
         ),
-        exampleRow,
+        examples,
         srStatus,
         result,
         empty,
