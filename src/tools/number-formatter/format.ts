@@ -321,6 +321,21 @@ export function integerToWords(input: string | bigint): string {
   return (negative ? 'negative ' : '') + groups.join(' ')
 }
 
+/**
+ * Scientific notation built from a whole number's digits, so a paste past 2^53
+ * keeps every significant digit instead of showing the rounded double's.
+ */
+export function integerToScientific(input: string | bigint): string {
+  const text = (typeof input === 'bigint' ? input : BigInt(input)).toString()
+  const negative = text.startsWith('-')
+  const digits = negative ? text.slice(1) : text
+  // The exponent counts every place in the integer; only the mantissa drops
+  // trailing zeros, so 1000000 is 1e+6 and not 1e+0.
+  const body = digits.replace(/0+$/, '') || '0'
+  const mantissa = body.length === 1 ? body : `${body[0]}.${body.slice(1)}`
+  return `${negative ? '-' : ''}${mantissa}e+${digits.length - 1}`
+}
+
 /** A finite number written out in English words. */
 export function numberToWords(value: number): string {
   if (!Number.isFinite(value)) throw new NumberError('Only finite numbers can be written out')
@@ -351,7 +366,7 @@ export function representations(value: number, locale = 'en-US', raw?: string): 
     ['Currency (USD)', formatNumber(value, { locale, style: 'currency', currency: 'USD' })],
     ['Percent', formatNumber(value, { locale, style: 'percent' })],
     ['Two decimals', formatNumber(value, { locale, minimumFractionDigits: 2, maximumFractionDigits: 2 })],
-    ['Scientific', value.toExponential()],
+    ['Scientific', exact != null ? integerToScientific(exact) : value.toExponential()],
     ['Binary', binary != null ? binary : '—'],
     ['Hexadecimal', hex != null ? hex : '—'],
   ]

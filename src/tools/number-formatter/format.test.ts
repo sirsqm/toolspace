@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { abbreviate, exactIntegerDigits, formatNumber, integerToWords, isCurrencyCode, isSupportedCurrency, isValidLocale, isValidUnit, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
+import { abbreviate, exactIntegerDigits, formatNumber, integerToScientific, integerToWords, isCurrencyCode, isSupportedCurrency, isValidLocale, isValidUnit, NumberError, normalizeDecimals, numberToWords, parseNumber, representations, toFixed } from './format'
 
 describe('parseNumber', () => {
   it('reads a plain number', () => {
@@ -357,6 +357,24 @@ describe('representations with the exact input', () => {
     expect(lookup['Plain']).toBe('9007199254740993')
     expect(lookup['Binary']).toBe('100000000000000000000000000000000000000000000000000001')
     expect(lookup['Hexadecimal']).toBe('0x20000000000001')
+  })
+
+  it('shows the typed digits in the scientific row too', () => {
+    const lookup = Object.fromEntries(representations(9007199254740992, 'en-US', '9007199254740993'))
+    expect(lookup['Scientific']).toBe('9.007199254740993e+15')
+  })
+})
+
+describe('integerToScientific', () => {
+  it('keeps every significant digit and trims trailing zeros', () => {
+    expect(integerToScientific('9007199254740993')).toBe('9.007199254740993e+15')
+    expect(integerToScientific(1000000n)).toBe('1e+6')
+    expect(integerToScientific('0')).toBe('0e+0')
+  })
+
+  it('keeps the sign and reads a single digit without a mantissa point', () => {
+    expect(integerToScientific(-42n)).toBe('-4.2e+1')
+    expect(integerToScientific('7')).toBe('7e+0')
   })
 })
 
