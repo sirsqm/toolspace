@@ -224,9 +224,16 @@ describe('parseNumber', () => {
 })
 
 describe('parseList', () => {
-  it('splits on commas, spaces and newlines', () => {
-    expect(parseList('1, 2, 3')).toEqual([1, 2, 3])
+  it('splits on spaces, semicolons and newlines', () => {
     expect(parseList('1 2\n3;4')).toEqual([1, 2, 3, 4])
+    expect(parseList('1, 2, 3')).toEqual([1, 2, 3])
+  })
+
+  it('keeps a comma that is really a thousands separator', () => {
+    expect(parseList('1,250')).toEqual([1250])
+    expect(parseList('1,250 3,000')).toEqual([1250, 3000])
+    expect(parseList('10, 1,250')).toEqual([10, 1250])
+    expect(parseList('1,2,3')).toEqual([1, 2, 3])
   })
 
   it('names the bad token', () => {

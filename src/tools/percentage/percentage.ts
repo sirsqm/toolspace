@@ -43,11 +43,27 @@ export function parseNumber(text: string, label = 'Value'): number {
   return value
 }
 
-/** Split a free-form list of numbers, naming the token that failed. */
+/**
+ * Split a free-form list of numbers, naming the token that failed.
+ *
+ * A list is separated by whitespace, semicolons or newlines. A comma only
+ * separates when it is not a thousands separator, so a pasted “1,250” stays
+ * one part instead of silently becoming two — the same rule `parseNumber`
+ * applies to a single box. Writing the same list on two lines is unambiguous.
+ */
 export function parseList(text: string, label = 'Every part'): number[] {
-  const tokens = text.split(/[\s,;]+/).filter((token) => token !== '')
+  const tokens = text
+    .split(/[\s;]+/)
+    .filter((token) => token !== '')
+    .flatMap((token) => splitOnCommas(token))
   if (tokens.length === 0) throw new PercentageError('Add at least one part')
   return tokens.map((token) => parseNumber(token, `${label} (“${token}”)`))
+}
+
+function splitOnCommas(token: string): string[] {
+  // A token that is a whole grouped number — "1,250", "12,500.50" — stays as it is.
+  if (/^[+-]?\d{1,3}(,\d{3})+(\.\d*)?([eE][+-]?\d+)?$/.test(token)) return [token]
+  return token.split(',').filter((part) => part !== '')
 }
 
 /** What is `percent` percent of `value`? */

@@ -149,7 +149,7 @@ const tool: Tool = {
     const splitField = field(splitInput, {
       label: 'Weights',
       forId: splitInput.id,
-      hint: 'Any numbers, separated by commas, spaces or newlines. Bigger numbers get bigger shares.',
+      hint: 'Any numbers, separated by spaces, commas, semicolons or newlines. A comma between thousands (“1,250”) stays part of the number. Bigger numbers get bigger shares.',
     })
     // The kit's hint has no id of its own; point the textarea at it so a
     // screen reader hears the format rule when the box takes focus.
