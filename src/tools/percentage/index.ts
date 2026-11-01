@@ -15,13 +15,13 @@ import {
 import type { Tool } from '../../core/types'
 import {
   applyDiscount,
-  breakdownRows,
+  breakdownParts,
   describeChange,
   formatNumber,
   formatPercent,
   marginAndMarkup,
-  parseList,
   parseNumber,
+  parseParts,
   PercentageError,
   percentOf,
   percentOfTotal,
@@ -77,15 +77,27 @@ function resultRow(label = 'Result'): ResultRow {
   return { value, meta, node }
 }
 
-const EXAMPLES: [string, string][] = [
-  ['20', '150'],
-  ['25', '200'],
-  ['100', '150'],
-  ['150', '50'],
-  ['200', '25'],
-  ['80', '100'],
-  ['100', '1, 1, 2'],
-]
+/**
+ * What the Examples button restores. Every box is named, so a value can never
+ * land in the wrong field — the old flat list shifted the whole page and left
+ * the weights box empty. The split is written with names to show the format.
+ */
+const EXAMPLE: Record<string, string> = {
+  ofPercent: '20',
+  ofValue: '150',
+  partValue: '25',
+  totalValue: '200',
+  changeFrom: '100',
+  changeTo: '150',
+  reverseResult: '150',
+  reversePercentValue: '50',
+  price: '200',
+  discount: '25',
+  cost: '80',
+  sellPrice: '100',
+  splitTotal: '1,250',
+  split: 'Rent: 500\nFood: 300\nSavings: 200\nFun: 250',
+}
 
 const tool: Tool = {
   slug: 'percentage',
@@ -132,9 +144,9 @@ const tool: Tool = {
     ]
 
     const splitInput = textarea({
-      rows: 3,
-      value: '1, 1, 2',
-      placeholder: '1, 1, 2',
+      rows: 4,
+      value: 'Rent: 500\nFood: 300\nSavings: 200\nFun: 250',
+      placeholder: 'Rent: 500\nFood: 300',
       onInput: () => compute(),
     })
     splitInput.id = 'ts-pct-split'
@@ -147,9 +159,9 @@ const tool: Tool = {
     const spoken: string[] = []
 
     const splitField = field(splitInput, {
-      label: 'Weights',
+      label: 'Parts',
       forId: splitInput.id,
-      hint: 'Any numbers, separated by spaces, commas, semicolons or newlines. A comma between thousands (“1,250”) stays part of the number. Bigger numbers get bigger shares.',
+      hint: 'One part per line as “Name: number”, or just numbers. Parts can also be separated by semicolons, or by commas when each is named (“Rent: 500, Food: 300”). A comma between thousands (“1,250”) stays part of the number. Bigger numbers get bigger shares.',
     })
     // The kit's hint has no id of its own; point the textarea at it so a
     // screen reader hears the format rule when the box takes focus.
@@ -225,18 +237,19 @@ const tool: Tool = {
     function paintSplit() {
       try {
         const total = number(splitTotal)
-        const rows = breakdownRows(total, parseList(splitInput.value, 'Each part'), 2)
+        const parts = parseParts(splitInput.value, 'Each part')
+        const rows = breakdownParts(total, parts, 2)
         const sum = rows.reduce((running, row) => running + row.amount, 0)
         splitOut.replaceChildren(
           table(
             [
-              { key: 'part', label: 'Part', mono: true },
+              { key: 'part', label: 'Part' },
               { key: 'weight', label: 'Weight', mono: true },
               { key: 'share', label: 'Share', mono: true },
               { key: 'amount', label: 'Amount', mono: true },
             ],
             rows.map((row) => ({
-              part: String(row.index),
+              part: row.name ?? String(row.index),
               weight: formatNumber(row.weight),
               share: formatPercent(row.share),
               amount: formatNumber(row.amount),
@@ -254,11 +267,24 @@ const tool: Tool = {
 
     for (const { input } of allInputs) input.addEventListener('input', compute)
 
-    function setValues(values: string[]) {
-      const targets = [...allInputs, { input: splitInput }]
-      targets.forEach((target, index) => {
-        target.input.value = values[index] ?? ''
-      })
+    function setValues(values: Partial<Record<keyof typeof EXAMPLE, string>>) {
+      const byInput = new Map<HTMLInputElement, string | undefined>([
+        [ofPercent.input, values.ofPercent],
+        [ofValue.input, values.ofValue],
+        [partValue.input, values.partValue],
+        [totalValue.input, values.totalValue],
+        [changeFrom.input, values.changeFrom],
+        [changeTo.input, values.changeTo],
+        [reverseResult.input, values.reverseResult],
+        [reversePercentValue.input, values.reversePercentValue],
+        [price.input, values.price],
+        [discount.input, values.discount],
+        [cost.input, values.cost],
+        [sellPrice.input, values.sellPrice],
+        [splitTotal.input, values.splitTotal],
+      ])
+      for (const [input, value] of byInput) input.value = value ?? ''
+      splitInput.value = values.split ?? ''
     }
 
     root.append(
@@ -269,7 +295,7 @@ const tool: Tool = {
             icon: 'refresh',
             variant: 'ghost',
             onClick: () => {
-              setValues(EXAMPLES.map(([, value]) => value))
+              setValues(EXAMPLE)
               compute()
               ofPercent.input.focus()
             },
@@ -278,12 +304,12 @@ const tool: Tool = {
             icon: 'eraser',
             variant: 'ghost',
             onClick: () => {
-              setValues(allInputs.map(() => '').concat(''))
+              setValues({})
               compute()
               ofPercent.input.focus()
             },
           }),
-          el('span', { class: 'ts-k-hint' }, 'Boxes accept plain numbers, and also pasted “1,250” or “25%”.'),
+          el('span', { class: 'ts-k-hint' }, 'Boxes accept plain numbers, and also pasted “1,250” or “25%”. Press Alt+1–7 to jump between panels.'),
         ),
         grid(
           300,
@@ -334,6 +360,27 @@ const tool: Tool = {
         srStatus,
       ),
     )
+
+    // Alt+1..7 focuses the first box of each panel, so the whole page can be
+    // driven without a mouse and without tabbing through every control.
+    const jumpTargets = [
+      ofPercent.input,
+      partValue.input,
+      changeFrom.input,
+      reverseResult.input,
+      price.input,
+      cost.input,
+      splitTotal.input,
+    ]
+    root.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return
+      const index = Number(event.key) - 1
+      const target = jumpTargets[index]
+      if (!target) return
+      event.preventDefault()
+      target.focus()
+      target.select()
+    })
 
     compute()
   },

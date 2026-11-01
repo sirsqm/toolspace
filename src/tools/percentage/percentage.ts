@@ -43,21 +43,82 @@ export function parseNumber(text: string, label = 'Value'): number {
   return value
 }
 
+/** The most parts a split will render. A larger list would freeze the table. */
+export const MAX_PARTS = 1000
+
 /**
- * Split a free-form list of numbers, naming the token that failed.
+ * Split free-form text into number tokens.
  *
- * A list is separated by whitespace, semicolons or newlines. A comma only
- * separates when it is not a thousands separator, so a pasted “1,250” stays
- * one part instead of silently becoming two — the same rule `parseNumber`
- * applies to a single box. Writing the same list on two lines is unambiguous.
+ * Whitespace and semicolons always separate; a comma only separates when it is
+ * not a thousands separator, so a pasted “1,250” stays one number instead of
+ * silently becoming two — the same rule `parseNumber` applies to a single box.
  */
-export function parseList(text: string, label = 'Every part'): number[] {
-  const tokens = text
+function numberTokens(text: string): string[] {
+  return text
     .split(/[\s;]+/)
     .filter((token) => token !== '')
     .flatMap((token) => splitOnCommas(token))
+}
+
+function requireCount(tokens: readonly unknown[], label: string): void {
+  if (tokens.length > MAX_PARTS) {
+    throw new PercentageError(`${label} has ${tokens.length} parts; the most that can be shown is ${MAX_PARTS}`)
+  }
+}
+
+/**
+ * Split a free-form list of numbers, naming the token that failed.
+ *
+ * Writing the same list on two lines is unambiguous. See `parseParts` for the
+ * named form.
+ */
+export function parseList(text: string, label = 'Every part'): number[] {
+  const tokens = numberTokens(text)
   if (tokens.length === 0) throw new PercentageError('Add at least one part')
+  requireCount(tokens, label)
   return tokens.map((token) => parseNumber(token, `${label} (“${token}”)`))
+}
+
+/** One part of a split, optionally labelled by the user. */
+export interface SplitPart {
+  /** Label typed before a `:` or `=`, e.g. "Rent". Absent for a bare number. */
+  name?: string
+  weight: number
+}
+
+/**
+ * Split free-form text into parts, each optionally named.
+ *
+ * A part is a number, or a `name: number` (a `=` works too). Parts are
+ * separated by newlines, semicolons, or commas when each side is itself a
+ * `name: number` pair — so both of these read the same:
+ *
+ *     Rent: 500
+ *     Food: 300
+ *
+ *     Rent: 500, Food: 300
+ *
+ * An unnamed list keeps the `parseList` rules, so “1,250” stays one number.
+ */
+export function parseParts(text: string, label = 'Every part'): SplitPart[] {
+  const parts: SplitPart[] = []
+  for (const segment of text.split(/[;\n]+/)) {
+    if (segment.trim() === '') continue
+    // A line may pack several `name: number` pairs; split between them only,
+    // so a comma inside a bare number list still separates normally.
+    const entries = /[:=]/.test(segment) ? segment.split(/,(?=\s*[^\s,;:=]+\s*[:=])/) : [segment]
+    for (const entry of entries) {
+      const match = /^\s*([^:=]+?)\s*[:=]\s*(.+)$/.exec(entry)
+      const name = match ? match[1].trim() : undefined
+      const tokens = numberTokens(match ? match[2] : entry)
+      for (const token of tokens) {
+        parts.push({ name, weight: parseNumber(token, `${label} (“${token}”)`) })
+      }
+    }
+  }
+  if (parts.length === 0) throw new PercentageError('Add at least one part')
+  requireCount(parts, label)
+  return parts
 }
 
 function splitOnCommas(token: string): string[] {
@@ -179,6 +240,8 @@ export function allocate(total: number, weights: readonly number[], decimals = 2
 export interface BreakdownRow {
   /** 1-based position, so the label matches the input order. */
   index: number
+  /** The user's label, when the part was named. */
+  name?: string
   weight: number
   /** Share of the total, as a percentage. */
   share: number
@@ -188,12 +251,23 @@ export interface BreakdownRow {
 
 /** Per-part shares and amounts for a total, ready to render. */
 export function breakdownRows(total: number, weights: readonly number[], decimals = 2): BreakdownRow[] {
-  if (weights.length === 0) return []
+  return breakdownParts(
+    total,
+    weights.map((weight) => ({ weight })),
+    decimals,
+  )
+}
+
+/** Like `breakdownRows`, but each part may carry the user's own label. */
+export function breakdownParts(total: number, parts: readonly SplitPart[], decimals = 2): BreakdownRow[] {
+  if (parts.length === 0) return []
+  const weights = parts.map((part) => part.weight)
   const shares = percentBreakdown(weights)
   const amounts = allocate(total, weights, decimals)
-  return weights.map((weight, position) => ({
+  return parts.map((part, position) => ({
     index: position + 1,
-    weight,
+    name: part.name,
+    weight: part.weight,
     share: shares[position],
     amount: amounts[position],
   }))

@@ -3,13 +3,16 @@ import {
   allocate,
   applyDiscount,
   applyMarkup,
+  breakdownParts,
   breakdownRows,
   describeChange,
   formatNumber,
   formatPercent,
   marginAndMarkup,
+  MAX_PARTS,
   parseList,
   parseNumber,
+  parseParts,
   PercentageError,
   percentBreakdown,
   percentChange,
@@ -169,6 +172,22 @@ describe('breakdownRows', () => {
   })
 })
 
+describe('breakdownParts', () => {
+  it('carries each part label through to its row', () => {
+    const rows = breakdownParts(100, [{ name: 'Rent', weight: 1 }, { name: 'Food', weight: 3 }], 2)
+    expect(rows[0]).toMatchObject({ index: 1, name: 'Rent', weight: 1, share: 25, amount: 25 })
+    expect(rows[1]).toMatchObject({ index: 2, name: 'Food', weight: 3, share: 75, amount: 75 })
+  })
+
+  it('leaves the name undefined for an unnamed part', () => {
+    expect(breakdownParts(100, [{ weight: 1 }], 2)[0].name).toBeUndefined()
+  })
+
+  it('returns nothing for no parts', () => {
+    expect(breakdownParts(100, [])).toEqual([])
+  })
+})
+
 describe('marginAndMarkup', () => {
   it('reports both figures', () => {
     const result = marginAndMarkup(80, 100)
@@ -239,6 +258,51 @@ describe('parseList', () => {
   it('names the bad token', () => {
     expect(() => parseList('1, oops')).toThrow('oops')
     expect(() => parseList('   ')).toThrow('Add at least one part')
+  })
+
+  it('refuses a list too large to render, saying how many', () => {
+    const huge = Array.from({ length: MAX_PARTS + 1 }, () => '1').join(' ')
+    expect(() => parseList(huge)).toThrow(String(MAX_PARTS))
+    expect(parseList(Array.from({ length: MAX_PARTS }, () => '1').join(' '))).toHaveLength(MAX_PARTS)
+  })
+})
+
+describe('parseParts', () => {
+  it('reads a bare list exactly like parseList', () => {
+    expect(parseParts('1 2\n3;4')).toEqual([{ weight: 1 }, { weight: 2 }, { weight: 3 }, { weight: 4 }])
+    expect(parseParts('1,250 3,000')).toEqual([{ weight: 1250 }, { weight: 3000 }])
+  })
+
+  it('labels a part written as “name: number”', () => {
+    expect(parseParts('Rent: 500\nFood: 300')).toEqual([
+      { name: 'Rent', weight: 500 },
+      { name: 'Food', weight: 300 },
+    ])
+  })
+
+  it('accepts “=” as well as “:” and trims the label', () => {
+    expect(parseParts('  Rent = 500 ')).toEqual([{ name: 'Rent', weight: 500 }])
+  })
+
+  it('splits several named parts packed onto one comma line', () => {
+    expect(parseParts('Rent: 500, Food: 300')).toEqual([
+      { name: 'Rent', weight: 500 },
+      { name: 'Food', weight: 300 },
+    ])
+  })
+
+  it('keeps a bare comma list as separate numbers, not one named pair', () => {
+    expect(parseParts('10, 1,250')).toEqual([{ weight: 10 }, { weight: 1250 }])
+  })
+
+  it('names the part that failed', () => {
+    expect(() => parseParts('Rent: 500\nFood: oops')).toThrow('oops')
+    expect(() => parseParts('   ')).toThrow('Add at least one part')
+  })
+
+  it('refuses a list too large to render', () => {
+    const huge = Array.from({ length: MAX_PARTS + 1 }, () => 'x: 1').join('\n')
+    expect(() => parseParts(huge)).toThrow(String(MAX_PARTS))
   })
 })
 
