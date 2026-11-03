@@ -1,0 +1,35 @@
+/* Screen-reader-only status line; the visible panels carry the same answer, so
+   this is announced once per keystroke instead of once per panel. */
+.ts-cron-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A real fieldset for the weekday boxes, stripped of the browser chrome. The
+   `min-width: 0` matters: a fieldset defaults to `min-width: auto`, which in a
+   grid track refuses to shrink below its content and can overflow at 360px. */
+.ts-cron-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.ts-cron-fieldset legend { padding: 0 0 6px; }
+
+/* The macro gloss sits under the description; keep it quiet. */
+.ts-cron-meta { margin: 6px 0 0; font-size: var(--text-xs); color: var(--faint); }
+.ts-cron-meta[hidden] { display: none; }
+
+/* Long field values ("every 15 minutes from Monday through Friday") and the
+   locale-formatted run dates must wrap rather than widen a 360px panel. */
+.ts-cron .ts-k-kv__value,
+.ts-cron .ts-k-card__body,
+.ts-cron .ts-k-out__meta { overflow-wrap: anywhere; }
