@@ -150,30 +150,39 @@ function label(value: number, spec: FieldSpec): string {
   return String(value)
 }
 
+/** The noun to count with, singular or plural: "2 hours", "every 1 day". */
+function unit(spec: FieldSpec, count: number): string {
+  const singular = spec.name === 'day of month' || spec.name === 'day of week' ? 'day' : spec.name
+  return count === 1 ? singular : `${singular}s`
+}
+
 function humanize(raw: string, values: number[], spec: FieldSpec): string {
   if (raw === '*') return ANY_PHRASE[spec.name]
 
   const step = raw.match(/^\*\/(\d+)$/)
-  if (step) return `every ${step[1]} ${spec.name}s`
+  if (step) return `every ${step[1]} ${unit(spec, Number(step[1]))}`
 
-  // A plain range reads better as "Monday through Friday" than as a list.
+  const steppedRange = raw.match(/^([A-Za-z0-9]+)-([A-Za-z0-9]+)\/(\d+)$/)
+  if (steppedRange) {
+    const from = substituteNames(steppedRange[1], spec)
+    const to = substituteNames(steppedRange[2], spec)
+    if (/^\d+$/.test(from) && /^\d+$/.test(to)) {
+      const count = Number(steppedRange[3])
+      return `every ${count} ${unit(spec, count)} from ${label(Number(from), spec)} through ${label(Number(to), spec)}`
+    }
+  }
+
+  // A plain range reads better as "Monday through Friday" (or "9 through 17")
+  // than as the comma list the values would otherwise produce.
   const range = raw.match(/^([A-Za-z0-9]+)-([A-Za-z0-9]+)$/)
-  if (range && spec.names) {
+  if (range) {
     const from = substituteNames(range[1], spec)
     const to = substituteNames(range[2], spec)
     if (/^\d+$/.test(from) && /^\d+$/.test(to)) {
       const lo = Number(from) === 7 ? 0 : Number(from)
       const hi = Number(to) === 7 ? 0 : Number(to)
-      return `${label(lo, spec)} through ${label(hi, spec)}`
-    }
-  }
-
-  const steppedRange = raw.match(/^([A-Za-z0-9]+)-([A-Za-z0-9]+)\/(\d+)$/)
-  if (steppedRange && spec.names) {
-    const from = substituteNames(steppedRange[1], spec)
-    const to = substituteNames(steppedRange[2], spec)
-    if (/^\d+$/.test(from) && /^\d+$/.test(to)) {
-      return `every ${steppedRange[3]} ${spec.name}s from ${label(Number(from), spec)} through ${label(Number(to), spec)}`
+      if (spec.names) return `${label(lo, spec)} through ${label(hi, spec)}`
+      return `${unit(spec, hi - lo + 1)} ${lo} through ${hi}`
     }
   }
 

@@ -201,3 +201,29 @@ describe('buildCron', () => {
     }
   })
 })
+
+describe('description wording', () => {
+  const describeField = (expression: string, index: number) => parseCron(expression).fields[index].description
+
+  it('spells out a numeric range instead of listing every value', () => {
+    expect(describeField('0 9-17 * * *', 1)).toBe('hours 9 through 17')
+    expect(describeField('0 0 * * 1-5', 4)).toBe('Monday through Friday')
+  })
+
+  it('counts steps with the right singular or plural noun', () => {
+    expect(describeField('*/15 * * * *', 0)).toBe('every 15 minutes')
+    expect(describeField('0 */2 * * *', 1)).toBe('every 2 hours')
+    expect(describeField('0 0 */1 * *', 2)).toBe('every 1 day')
+    expect(describeField('0 0 */2 * *', 2)).toBe('every 2 days')
+    expect(describeField('0 0 1 */3 *', 3)).toBe('every 3 months')
+  })
+
+  it('describes a stepped range with its span', () => {
+    expect(describeField('0 9-17/2 * * *', 1)).toBe('every 2 hours from 9 through 17')
+    expect(describeField('0 0 * * 1-5/2', 4)).toBe('every 2 days from Monday through Friday')
+  })
+
+  it('still lists values that are not a contiguous range', () => {
+    expect(describeField('0 1,3,5 * * *', 1)).toBe('1, 3, 5')
+  })
+})
