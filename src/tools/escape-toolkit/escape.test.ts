@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { escape, unescape, type Flavor } from './escape'
+import {
+  escape,
+  EscapeError,
+  EXAMPLES,
+  FLAVORS,
+  FLAVOR_NOTES,
+  unescape,
+  type Flavor,
+} from './escape'
 
 describe('json/javascript escaping', () => {
   it('escapes quotes and newlines', () => {
@@ -9,6 +17,12 @@ describe('json/javascript escaping', () => {
   it('round-trips', () => {
     const text = 'he said "hi"\tand left\\'
     expect(unescape(escape(text, 'json'), 'json')).toBe(text)
+  })
+
+  it('reports malformed input instead of silently dropping it', () => {
+    // A lone backslash is not a valid JSON escape.
+    expect(() => unescape('a\\', 'json')).toThrow(EscapeError)
+    expect(() => unescape('a\\', 'json')).toThrow(/JSON string/)
   })
 })
 
@@ -21,6 +35,11 @@ describe('html/xml escaping', () => {
     expect(unescape('&lt;&amp;&gt;&#39;&#x41;', 'html')).toBe(`<&>'A`)
   })
 
+  it('leaves a lone surrogate entity alone', () => {
+    expect(unescape('&#xD800;', 'html')).toBe('&#xD800;')
+    expect(unescape('&#x110000;', 'html')).toBe('&#x110000;')
+  })
+
   it('round-trips', () => {
     expect(unescape(escape('<b>"x"</b>', 'xml'), 'xml')).toBe('<b>"x"</b>')
   })
@@ -30,6 +49,11 @@ describe('url escaping', () => {
   it('encodes and decodes a component', () => {
     expect(escape('a b/c?d=1', 'url')).toBe('a%20b%2Fc%3Fd%3D1')
     expect(unescape('a%20b', 'url')).toBe('a b')
+  })
+
+  it('reports a truncated escape sequence', () => {
+    expect(() => unescape('100%', 'url')).toThrow(EscapeError)
+    expect(() => unescape('100%', 'url')).toThrow(/percent-encoding/)
   })
 })
 
@@ -76,5 +100,33 @@ describe('csv escaping', () => {
   it('returns the input unchanged for an unknown flavour', () => {
     expect(escape('x', 'bogus' as Flavor)).toBe('x')
     expect(unescape('x', 'bogus' as Flavor)).toBe('x')
+  })
+})
+
+describe('flavour metadata', () => {
+  it('has a hint and an example for every flavour', () => {
+    for (const item of FLAVORS) {
+      expect(FLAVOR_NOTES[item.value]).toBeTruthy()
+      expect(EXAMPLES[item.value]).toBeTruthy()
+    }
+  })
+
+  it('examples actually change when escaped for their own flavour', () => {
+    for (const item of FLAVORS) {
+      // Every example contains something the flavour has to touch.
+      expect(escape(EXAMPLES[item.value], item.value)).not.toBe(EXAMPLES[item.value])
+    }
+  })
+})
+
+describe('unicode', () => {
+  it('escapes non-ASCII JSON as-is and round-trips', () => {
+    const text = 'café — 日本語'
+    expect(unescape(escape(text, 'json'), 'json')).toBe(text)
+  })
+
+  it('percent-encodes unicode for URLs', () => {
+    expect(escape('café', 'url')).toBe('caf%C3%A9')
+    expect(unescape('caf%C3%A9', 'url')).toBe('café')
   })
 })
