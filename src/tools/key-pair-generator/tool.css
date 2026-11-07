@@ -1,0 +1,31 @@
+/* One live sentence for screen readers; the visible badge and the outputs stay
+   silent so a generation is announced once, not three times. */
+.ts-keygen-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The results column: details first, then the four key blocks. */
+.ts-keygen-results {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ts-keygen-results[aria-busy='true'] {
+  opacity: 0.6;
+}
+
+/* The OpenSSH line and PEM blocks are long and unbroken, so let them wrap
+   inside the block instead of forcing the page to scroll sideways. */
+.ts-keygen-results .ts-k-out__body {
+  max-height: 240px;
+}
