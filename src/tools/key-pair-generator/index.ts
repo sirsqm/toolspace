@@ -87,10 +87,11 @@ const tool: Tool = {
 
     const generate = button('Generate new key pair', { icon: 'refresh', variant: 'primary', onClick: () => void run() })
     const hint = note(HINTS[algorithm.value as Algorithm], 'neutral')
+    const downloads = actions(note('Generated files appear here.', 'neutral'))
 
     const results = document.createElement('div')
     results.className = 'ts-keygen-results'
-    results.append(details, publicOpenssh, publicPem, privatePem)
+    results.append(details, publicOpenssh, publicPem, privatePem, privateOpenssh)
 
     function setStatus(text: string, tone: Tone, announcement = text) {
       status.textContent = text
@@ -147,8 +148,6 @@ const tool: Tool = {
         )
       }
     }
-
-    const downloads = actions(note('Generated files appear here.', 'neutral'))
 
     async function run() {
       const choice = algorithm.value as Algorithm
