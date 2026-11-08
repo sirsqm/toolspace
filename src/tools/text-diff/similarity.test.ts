@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closestPairs, levenshtein, similarity, similarityPercent } from './similarity'
+import { closestPairs, compareText, levenshtein, similarity, similarityPercent } from './similarity'
 
 describe('levenshtein', () => {
   it('is zero for identical strings', () => {
@@ -35,6 +35,29 @@ describe('similarity', () => {
   })
 })
 
+describe('compareText', () => {
+  it('matches similarity and distance when the input fits the budget', () => {
+    const result = compareText('kitten', 'sitting')
+    expect(result.approximate).toBe(false)
+    expect(result.distance).toBe(levenshtein('kitten', 'sitting'))
+    expect(result.percent).toBe(similarityPercent('kitten', 'sitting'))
+  })
+
+  it('is exact for two empty strings', () => {
+    expect(compareText('', '')).toEqual({ percent: 100, distance: 0, approximate: false, compared: 0 })
+  })
+
+  it('bounds the work and flags it as approximate on a huge pair', () => {
+    const a = 'x'.repeat(20000)
+    const b = 'y'.repeat(20000)
+    const start = performance.now()
+    const result = compareText(a, b)
+    expect(performance.now() - start).toBeLessThan(4000)
+    expect(result.approximate).toBe(true)
+    expect(result.compared).toBeLessThan(20000)
+  })
+})
+
 describe('closestPairs', () => {
   it('ranks the most similar line pairs first and skips exact matches', () => {
     const rows = closestPairs('colour\nhello', 'color\nworld')
@@ -51,5 +74,14 @@ describe('closestPairs', () => {
   it('respects the limit', () => {
     const rows = closestPairs('a\nb\nc', 'x\ny\nz', 2)
     expect(rows).toHaveLength(2)
+  })
+
+  it('stays fast on two long files (pair count is capped)', () => {
+    const before = Array.from({ length: 4000 }, (_, i) => `line ${i}`).join('\n')
+    const after = Array.from({ length: 4000 }, (_, i) => `line ${i} edited`).join('\n')
+    const start = performance.now()
+    const rows = closestPairs(before, after)
+    expect(performance.now() - start).toBeLessThan(4000)
+    expect(rows.length).toBeLessThanOrEqual(20)
   })
 })

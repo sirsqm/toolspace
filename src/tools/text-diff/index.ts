@@ -30,7 +30,7 @@ import {
   type FoldedRow,
   type InlineRun,
 } from './diff'
-import { closestPairs, levenshtein, similarityPercent } from './similarity'
+import { closestPairs, compareText } from './similarity'
 
 const BEFORE = `the quick brown fox
 jumps over the lazy dog
@@ -281,12 +281,15 @@ const tool: Tool = {
     }
 
     function renderSimilarity() {
-      const percent = similarityPercent(before.value, after.value)
-      const distance = levenshtein(before.value, after.value)
+      const { percent, distance, approximate, compared } = compareText(before.value, after.value)
       const { before: bCount, after: aCount } = sideCounts(before.value, after.value)
       const rows = closestPairs(before.value, after.value)
       similarityStats.replaceChildren(
-        stat({ label: 'Similarity', value: `${percent}%`, hint: 'whole documents' }),
+        stat({
+          label: 'Similarity',
+          value: `${percent}%`,
+          hint: approximate ? `first ${compared.toLocaleString()} characters` : 'whole documents',
+        }),
         stat({ label: 'Edit distance', value: String(distance), hint: 'characters changed' }),
         stat({ label: 'Length', value: `${before.value.length} → ${after.value.length}` }),
         stat({ label: 'Lines', value: `${bCount} → ${aCount}` }),
@@ -309,7 +312,9 @@ const tool: Tool = {
             )
           : note('No distinct line pairs to compare.'),
       )
-      status.textContent = `${percent}% similar, edit distance ${distance}.`
+      status.textContent = approximate
+        ? `${percent}% similar over the first ${compared.toLocaleString()} characters; the texts are too long to compare in full.`
+        : `${percent}% similar, edit distance ${distance}.`
     }
 
     function renderEmpty() {

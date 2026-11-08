@@ -78,7 +78,7 @@ describe('diff (generic)', () => {
     expect(diff([], [], (a, b) => a === b)).toEqual([])
   })
 
-  it('falls back to a coarse diff above the size cap without losing content', () => {
+  it('stays exact for a one-line change in a large file (trim beats the cap)', () => {
     const a = Array.from({ length: 4100 }, (_, i) => `a${i}`)
     const b = Array.from({ length: 4100 }, (_, i) => `a${i}`)
     b[2050] = 'changed'
@@ -87,6 +87,49 @@ describe('diff (generic)', () => {
     const added = groups.filter((g) => g.type === 'add').flatMap((g) => g.items)
     expect(removed).toEqual(['a2050'])
     expect(added).toEqual(['changed'])
+  })
+
+  it('falls back to a coarse diff when a huge middle has no common edges', () => {
+    const a = Array.from({ length: 5000 }, (_, i) => `a${i}`)
+    const b = Array.from({ length: 5000 }, (_, i) => `b${i}`)
+    const groups = diff(a, b, (x, y) => x === y)
+    expect(groups.map((g) => g.type)).toEqual(['remove', 'add'])
+    expect(groups[0].items).toEqual(a)
+    expect(groups[1].items).toEqual(b)
+  })
+
+  it('trims a shared prefix and suffix into single equal groups', () => {
+    const groups = diff(['a', 'b', 'c', 'd', 'e'], ['a', 'b', 'X', 'd', 'e'], (x, y) => x === y)
+    expect(groups.map((g) => g.type)).toEqual(['equal', 'remove', 'add', 'equal'])
+    expect(groups[0].items).toEqual(['a', 'b'])
+    expect(groups[3].items).toEqual(['d', 'e'])
+  })
+
+  it('coalesces trims that meet the middle diff', () => {
+    // Every element matches, so the trims cover the whole input and the middle
+    // is empty: the result must be a single equal group, not three.
+    const groups = diff(['a', 'b', 'c'], ['a', 'b', 'c'], (x, y) => x === y)
+    expect(groups).toEqual([{ type: 'equal', items: ['a', 'b', 'c'] }])
+  })
+
+  it('diffs a huge file exactly when only one line changed', () => {
+    // 50k identical lines with a single edit: the trim leaves a tiny middle, so
+    // this stays an exact LCS diff rather than the coarse fallback.
+    const a = Array.from({ length: 50000 }, (_, i) => `line ${i}`)
+    const b = a.slice()
+    b[25000] = 'line 25000 changed'
+    const groups = diff(a, b, (x, y) => x === y)
+    expect(groups.map((g) => g.type)).toEqual(['equal', 'remove', 'add', 'equal'])
+    expect(groups[0].items.length).toBe(25000)
+    expect(groups[3].items.length).toBe(24999)
+  })
+
+  it('does not trim overlapping prefix and suffix runs', () => {
+    const groups = diff(['a', 'a', 'a'], ['a'], (x, y) => x === y)
+    const removed = groups.filter((g) => g.type === 'remove').flatMap((g) => g.items)
+    const equal = groups.filter((g) => g.type === 'equal').flatMap((g) => g.items)
+    expect(equal).toEqual(['a'])
+    expect(removed).toEqual(['a', 'a'])
   })
 })
 

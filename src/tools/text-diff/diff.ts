@@ -45,12 +45,52 @@ function keyOf(line: string, options: DiffOptions): string {
 }
 
 /**
- * Classic LCS table diff. Falls back to a coarse replace when inputs are very
- * large, so the O(n·m) table cannot freeze the tab.
+ * Line and word diff.
+ *
+ * The common prefix and suffix are peeled off first. Real edits touch a small
+ * region, so this usually shrinks the O(n·m) LCS table from the whole file to
+ * the handful of lines that actually differ — which keeps a big paste both
+ * exact and fast. Only if the *remaining middle* is still huge do we give up on
+ * a true diff and fall back to a coarse replace, so the table can never freeze
+ * the tab.
  */
 export function diff<T>(a: T[], b: T[], equals: (x: T, y: T) => boolean): DiffGroup<T>[] {
-  const MAX = 4000
-  if (a.length > MAX || b.length > MAX) return coarse(a, b, equals)
+  let prefix = 0
+  while (prefix < a.length && prefix < b.length && equals(a[prefix], b[prefix])) prefix++
+  let suffix = 0
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    equals(a[a.length - 1 - suffix], b[b.length - 1 - suffix])
+  ) suffix++
+
+  const midA = a.slice(prefix, a.length - suffix)
+  const midB = b.slice(prefix, b.length - suffix)
+
+  const groups: DiffGroup<T>[] = []
+  if (prefix) groups.push({ type: 'equal', items: a.slice(0, prefix) })
+  for (const group of diffMiddle(midA, midB, equals)) groups.push(group)
+  if (suffix) groups.push({ type: 'equal', items: a.slice(a.length - suffix) })
+  return mergeAdjacent(groups)
+}
+
+/** Coalesce neighbouring groups of the same type produced by the trims. */
+function mergeAdjacent<T>(groups: DiffGroup<T>[]): DiffGroup<T>[] {
+  const out: DiffGroup<T>[] = []
+  for (const group of groups) {
+    if (!group.items.length) continue
+    const last = out[out.length - 1]
+    if (last && last.type === group.type) last.items.push(...group.items)
+    else out.push({ type: group.type, items: group.items.slice() })
+  }
+  return out
+}
+
+const MAX_TABLE = 4000
+
+/** LCS table diff over the differing middle, with a coarse guard for the rest. */
+function diffMiddle<T>(a: T[], b: T[], equals: (x: T, y: T) => boolean): DiffGroup<T>[] {
+  if (a.length > MAX_TABLE || b.length > MAX_TABLE) return coarse(a, b, equals)
 
   const n = a.length
   const m = b.length
