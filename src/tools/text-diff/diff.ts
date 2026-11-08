@@ -1,4 +1,12 @@
-/** Line and word diffing via longest-common-subsequence. */
+/**
+ * Line and word diffing via longest-common-subsequence.
+ *
+ * The module keeps every judgement it makes here rather than in the DOM layer:
+ * what counts as "the same line" (exact, case- or whitespace-insensitive), how
+ * a changed line is broken into inline word runs, how unchanged stretches are
+ * folded down to context, and how many lines each side contributed. The viewer
+ * only paints what these functions return.
+ */
 
 export type DiffType = 'equal' | 'add' | 'remove'
 
@@ -7,9 +15,33 @@ export interface DiffPart {
   value: string
 }
 
+/** A word-level run inside a paired remove/add line. */
+export interface InlineRun {
+  type: DiffType
+  value: string
+}
+
 export interface DiffGroup<T> {
   type: DiffType
   items: T[]
+}
+
+export interface DiffOptions {
+  /** Ignore letter case when deciding whether two lines match. */
+  ignoreCase?: boolean
+  /** Treat runs of whitespace as one space, and trim ends, before matching. */
+  ignoreWhitespace?: boolean
+}
+
+/**
+ * Build the key a line is compared by. Two lines are "the same" when their
+ * keys are equal, so an option only has to change this one function.
+ */
+function keyOf(line: string, options: DiffOptions): string {
+  let key = line
+  if (options.ignoreWhitespace) key = key.replace(/\s+/g, ' ').trim()
+  if (options.ignoreCase) key = key.toLowerCase()
+  return key
 }
 
 /**
@@ -88,8 +120,19 @@ function toParts<T>(groups: DiffGroup<T>[], join: (items: T[]) => string): DiffP
   return groups.map((group) => ({ type: group.type, value: join(group.items) }))
 }
 
-export function diffLines(before: string, after: string): DiffPart[] {
-  const groups = diff(before.split('\n'), after.split('\n'), (x, y) => x === y)
+/** Split text into lines, treating CRLF, CR and LF alike. */
+export function splitLines(text: string): string[] {
+  return text.split(/\r\n?|\n/)
+}
+
+/** How many lines a block of text contains. An empty string is one empty line. */
+export function lineCount(text: string): number {
+  return splitLines(text).length
+}
+
+export function diffLines(before: string, after: string, options: DiffOptions = {}): DiffPart[] {
+  const equals = (x: string, y: string) => keyOf(x, options) === keyOf(y, options)
+  const groups = diff(splitLines(before), splitLines(after), equals)
   return toParts(groups, (items) => items.join('\n'))
 }
 
@@ -119,4 +162,137 @@ export function diffStats(parts: DiffPart[]): DiffStats {
     else stats.unchanged += count
   }
   return stats
+}
+
+/* -------------------------------------------------------------------------
+   Aligned rows
+   ------------------------------------------------------------------------- */
+
+export interface DiffRow {
+  type: DiffType
+  /** 1-based line number on the before side, or null when the line is an add. */
+  leftNumber: number | null
+  /** 1-based line number on the after side, or null when the line is a remove. */
+  rightNumber: number | null
+  left: string
+  right: string
+  /** Word runs for the line pair; empty for equal rows. */
+  inline: InlineRun[]
+}
+
+/**
+ * Turn the grouped diff into one row per line, pairing each run of removals
+ * with the run of additions that follows it so the two sides line up. A paired
+ * row also gets its word-level runs, which is what lets the viewer highlight
+ * *what* changed inside a line instead of tinting the whole thing.
+ */
+export function diffRows(before: string, after: string, options: DiffOptions = {}): DiffRow[] {
+  const equals = (x: string, y: string) => keyOf(x, options) === keyOf(y, options)
+  const groups = diff(splitLines(before), splitLines(after), equals)
+  const rows: DiffRow[] = []
+  let left = 1
+  let right = 1
+
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g]
+    if (group.type === 'equal') {
+      for (const line of group.items) {
+        rows.push({ type: 'equal', leftNumber: left++, rightNumber: right++, left: line, right: line, inline: [] })
+      }
+      continue
+    }
+
+    if (group.type === 'remove') {
+      const next = groups[g + 1]
+      const adds = next && next.type === 'add' ? next.items : []
+      if (next && next.type === 'add') g++
+      const count = Math.max(group.items.length, adds.length)
+      for (let k = 0; k < count; k++) {
+        const leftLine = k < group.items.length ? group.items[k] : null
+        const rightLine = k < adds.length ? adds[k] : null
+        const type: DiffType = leftLine == null ? 'add' : rightLine == null ? 'remove' : 'add'
+        rows.push({
+          type,
+          leftNumber: leftLine == null ? null : left++,
+          rightNumber: rightLine == null ? null : right++,
+          left: leftLine ?? '',
+          right: rightLine ?? '',
+          inline: leftLine != null && rightLine != null ? inlineRuns(leftLine, rightLine) : [],
+        })
+      }
+      continue
+    }
+
+    // A lone add group (no preceding removal to pair with).
+    for (const line of group.items) {
+      rows.push({ type: 'add', leftNumber: null, rightNumber: right++, left: '', right: line, inline: [] })
+    }
+  }
+
+  return rows
+}
+
+/**
+ * Word-level runs for a line pair, as one interleaved list. Equal runs appear
+ * once and are shown on both sides so the two lines stay in step.
+ */
+export function inlineRuns(left: string, right: string): InlineRun[] {
+  const groups = diff(tokenize(left), tokenize(right), (x, y) => x === y)
+  return groups.map((group) => ({ type: group.type, value: group.items.join('') }))
+}
+
+/** Split inline runs into the two sides for rendering, keeping them aligned. */
+export function inlineSides(runs: InlineRun[]): { left: InlineRun[]; right: InlineRun[] } {
+  const leftRuns: InlineRun[] = []
+  const rightRuns: InlineRun[] = []
+  for (const run of runs) {
+    if (run.type !== 'add') leftRuns.push(run)
+    if (run.type !== 'remove') rightRuns.push(run)
+  }
+  return { left: leftRuns, right: rightRuns }
+}
+
+/* -------------------------------------------------------------------------
+   Folding
+   ------------------------------------------------------------------------- */
+
+export type FoldedRow = DiffRow | { folded: number }
+
+/**
+ * Collapse long stretches of unchanged lines down to `context` lines on each
+ * side of a change. Without this a one-word edit in a 2000-line file is buried
+ * under 1999 lines of noise.
+ */
+export function foldRows(rows: DiffRow[], context = 3): FoldedRow[] {
+  // With no changes there is nothing to keep context around, and folding the
+  // whole file behind a "show all" button would hide an identical match.
+  if (rows.every((row) => row.type === 'equal')) return rows
+
+  const keep = new Array<boolean>(rows.length).fill(false)
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type !== 'equal') {
+      for (let j = Math.max(0, i - context); j <= Math.min(rows.length - 1, i + context); j++) keep[j] = true
+    }
+  }
+
+  const out: FoldedRow[] = []
+  let hidden = 0
+  for (let i = 0; i < rows.length; i++) {
+    if (keep[i]) {
+      if (hidden) {
+        out.push({ folded: hidden })
+        hidden = 0
+      }
+      out.push(rows[i])
+    } else {
+      hidden++
+    }
+  }
+  if (hidden) out.push({ folded: hidden })
+  return out
+}
+
+/** How many lines each side contributed, so a line count can be shown. */
+export function sideCounts(before: string, after: string): { before: number; after: number } {
+  return { before: lineCount(before), after: lineCount(after) }
 }

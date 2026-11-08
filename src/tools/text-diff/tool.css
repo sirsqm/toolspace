@@ -1,11 +1,134 @@
-/* The diff reads as one continuous document: add/remove lines tint the whole
-   row so a scan down the left edge is enough to spot changes. */
+/* Screen-reader-only status line. The diff itself is visual, so only the count
+   of changes is announced — once, rather than on every keystroke of output. */
+.ts-diff-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* `panel`, `field` and the diff regions all set their own `display`, which
+   beats the UA `[hidden]` rule, so toggled elements need an explicit rule. */
+.ts-diff-empty[hidden],
+.ts-diff[hidden],
+.ts-k-panel[hidden] {
+  display: none !important;
+}
+
+/* --- Summary chips ------------------------------------------------------- */
 .ts-diff-summary { display: flex; flex-wrap: wrap; gap: 6px; }
-.ts-diff { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; max-height: 460px; overflow-y: auto; background: var(--bg-input); }
+.ts-diff-summary:empty { display: none; }
+
+/* --- Empty state --------------------------------------------------------- */
+.ts-diff-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 28px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  text-align: center;
+}
+.ts-diff-empty__lead { margin: 0; font-size: var(--text-md); color: var(--fg); }
+
+/* --- Line view ----------------------------------------------------------- */
+/* One row per line, two aligned cells. The grid keeps the line-number gutter a
+   fixed width so a long file's numbers never shift the code column. */
+.ts-diff {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  max-height: 460px;
+  overflow-y: auto;
+  background: var(--bg-input);
+}
 .ts-diff:empty { display: none; }
-.ts-diff-part { display: flex; gap: 10px; padding: 4px 12px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.ts-diff:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+
+.ts-diff-row { display: grid; grid-template-columns: 1fr 1fr; }
+.ts-diff-cell {
+  display: grid;
+  grid-template-columns: 3.6ch minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 12px 3px 6px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  min-width: 0;
+}
+.ts-diff-cell + .ts-diff-cell { border-left: 1px solid var(--border); }
+.ts-diff-cell--add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.ts-diff-cell--remove { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.ts-diff-cell--equal { color: var(--muted); }
+.ts-diff-cell--gap { background: color-mix(in srgb, var(--border) 30%, transparent); }
+
+.ts-diff-lineno {
+  text-align: right;
+  color: var(--faint);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.ts-diff-code { min-width: 0; white-space: pre-wrap; word-break: break-word; }
+
+/* Inline word runs inside a changed line: the exact tokens that differ get a
+   stronger tint, so a one-word edit does not read as a whole-line rewrite. */
+.ts-diff-inline--add { background: color-mix(in srgb, var(--ok) 40%, transparent); border-radius: 2px; }
+.ts-diff-inline--remove { background: color-mix(in srgb, var(--danger) 40%, transparent); border-radius: 2px; }
+
+/* --- Folded unchanged runs ---------------------------------------------- */
+.ts-diff-fold {
+  display: block;
+  width: 100%;
+  padding: 5px 12px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  text-align: center;
+  cursor: pointer;
+}
+.ts-diff-fold:hover { color: var(--fg); background: var(--bg-elevated); }
+.ts-diff-fold:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
+
+/* --- Word view ----------------------------------------------------------- */
+/* In word mode the diff reads as one continuous document: add/remove lines
+   tint the whole row so a scan down the left edge is enough to spot changes. */
+.ts-diff--words { display: flex; flex-direction: column; }
+.ts-diff-part {
+  display: flex;
+  gap: 10px;
+  padding: 4px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .ts-diff-marker { flex: none; opacity: 0.7; user-select: none; }
-.ts-diff-text { flex: 1; }
+.ts-diff-text { flex: 1; min-width: 0; }
 .ts-diff-add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .ts-diff-remove { background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .ts-diff-equal { color: var(--muted); }
+
+/* --- Controls ------------------------------------------------------------ */
+.ts-diff-options { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.ts-diff-count { font-size: var(--text-xs); color: var(--faint); }
+
+/* Below the split width the two panes stack, so the side-by-side grid would
+   leave the right cell off-screen — fall back to one column. */
+@media (max-width: 640px) {
+  .ts-diff-row { grid-template-columns: 1fr; }
+  .ts-diff-cell + .ts-diff-cell { border-left: 0; border-top: 1px dashed var(--border); }
+  .ts-diff-cell--gap { display: none; }
+}
