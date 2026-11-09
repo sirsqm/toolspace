@@ -1,6 +1,39 @@
 .ts-param-list { display: flex; flex-direction: column; gap: 8px; }
-.ts-param-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto; gap: 8px; align-items: center; }
+.ts-param-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.ts-param-row > .ts-k-input { min-width: 0; }
+.ts-param-row > .ts-k-iconbtn { justify-self: end; }
+
+/* The empty-state line is a hint, not a control; give it breathing room. */
+.ts-url-empty { margin: 0; }
+
+/* A quiet label that sits inline with the example chips. */
+.ts-url-examples-label {
+  font-size: var(--text-xs, 0.8rem);
+  color: var(--muted, inherit);
+  align-self: center;
+}
+
 @media (max-width: 560px) {
-  .ts-param-row { grid-template-columns: 1fr auto; }
+  .ts-param-row { grid-template-columns: minmax(0, 1fr) auto; }
   .ts-param-row > .ts-k-input:first-child { grid-column: 1 / -1; }
+}
+
+/* One live sentence for screen readers; the visible output stays silent so a
+   keystroke is not announced twice. */
+.ts-url-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
