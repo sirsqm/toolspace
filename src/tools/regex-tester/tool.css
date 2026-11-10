@@ -1,0 +1,60 @@
+/* Screen-reader-only status line: one concise sentence per run, so a keystroke
+   is announced once rather than re-reading every panel. */
+.ts-regex-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* `panel`, `field` and the note set their own `display`, which beats the UA
+   `[hidden]` rule, so a toggled error needs an explicit override. */
+.ts-regex-error[hidden] { display: none !important; }
+.ts-regex-flags .ts-k-check { cursor: pointer; }
+
+/* --- Flag row ------------------------------------------------------------ */
+.ts-regex-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 10px;
+}
+.ts-regex-flags .ts-k-check { font-size: var(--text-sm); }
+.ts-regex-flags .ts-k-check__text { color: var(--muted); }
+
+/* --- Live preview -------------------------------------------------------- */
+/* The whole sample text, with matched runs tinted. `pre-wrap` keeps the
+   original line breaks; `break-word` stops a long token overflowing at 360px. */
+.ts-regex-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.ts-regex-preview:empty { display: none; }
+
+/* A matched run: the accent marks the hit, an underline keeps it legible even
+   when the theme's accent sits close to the foreground on one of the ramps. */
+.ts-regex-hit {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+  box-shadow: inset 0 -1.5px 0 var(--accent-line);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ts-regex-hit { transition: background-color 120ms ease; }
+}
