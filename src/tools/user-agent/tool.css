@@ -1,0 +1,35 @@
+/* Screen-reader-only status line: one concise sentence per parse, so a
+   keystroke is announced once rather than re-reading every panel. */
+.ts-ua-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* `panel`, `note` and `field` set their own `display`, which beats the UA
+   `[hidden]` rule, so toggled blocks need an explicit override. */
+.ts-ua-error[hidden],
+.ts-ua-empty[hidden],
+.ts-ua-results[hidden] { display: none !important; }
+
+/* Summary line sits above the figures: the one-sentence reading first, the
+   device pill pinned to the right, wrapping rather than clipping at 360px. */
+.ts-ua-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 12px;
+}
+.ts-ua-summary {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
