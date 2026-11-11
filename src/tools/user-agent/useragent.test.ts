@@ -103,6 +103,12 @@ describe('parseUserAgent — browsers', () => {
     expect(ie.engine).toBe('Trident')
     expect(ie.osVersion).toBe('7')
   })
+
+  it('falls back to the Trident revision when IE omits rv:', () => {
+    const info = parseUserAgent('Mozilla/5.0 (Windows NT 6.1; Trident/7.0) like Gecko')
+    expect(info.browser).toBe('Internet Explorer')
+    expect(info.browserVersion).toBe('11.0')
+  })
 })
 
 describe('parseUserAgent — bots and clients', () => {
@@ -153,6 +159,13 @@ describe('parseUserAgent — devices', () => {
     const info = parseUserAgent('Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230805.001; wv) AppleWebKit/537.36 Chrome/115.0 Mobile Safari/537.36')
     expect(info.device).toBe('mobile')
     expect(info.deviceModel).toBe('Pixel 7')
+  })
+
+  it('ignores the reduced-UA "K" placeholder as a model', () => {
+    const info = parseUserAgent('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36')
+    expect(info.device).toBe('mobile')
+    expect(info.deviceModel).toBe('')
+    expect(info.browser).toBe('Chrome')
   })
 })
 

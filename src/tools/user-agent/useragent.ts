@@ -203,14 +203,24 @@ const BROWSERS: BrowserRule[] = [
   { test: /Safari\//i, name: 'Safari', version: ['Version'] },
 ]
 
+/** Trident revision to the IE version it shipped with, for strings with no `rv:`. */
+const TRIDENT_IE: Record<string, string> = {
+  '7.0': '11.0',
+  '6.0': '10.0',
+  '5.0': '9.0',
+  '4.0': '8.0',
+}
+
 function detectBrowser(ua: string, products: Product[]): { browser: string; version: string } {
   for (const rule of BROWSERS) {
     if (rule.test.test(ua)) {
       const version = productVersion(products, ...rule.version)
       // Trident-era IE writes its version as `rv:11.0` (a colon, not a slash),
-      // so it is not picked up as a product.
+      // so it is not picked up as a product. Some builds omit it entirely, in
+      // which case the Trident revision still pins the IE version.
       if (!version && rule.name === 'Internet Explorer') {
-        return { browser: rule.name, version: matchVersion(ua, /\brv:([\d.]+)/) }
+        const rv = matchVersion(ua, /\brv:([\d.]+)/)
+        return { browser: rule.name, version: rv || TRIDENT_IE[productVersion(products, 'Trident')] || '' }
       }
       return { browser: rule.name, version }
     }
@@ -302,7 +312,9 @@ function detectDeviceModel(ua: string): string {
   const android = /Android[^;)]*;\s*([^;)]+?)(?:\s+Build[/)]|\))/i.exec(ua)
   if (android) {
     const model = android[1].trim().replace(/\s+/g, ' ')
-    if (model && !/^(wv|mobile|tablet)$/i.test(model)) return model
+    // Chrome's reduced UA sends a single "K" as the model from Android 10 on,
+    // which is a privacy placeholder rather than a device name.
+    if (model && !/^(wv|mobile|tablet|k)$/i.test(model)) return model
   }
   const samsung = /\b(SM-[A-Z0-9]+)\b/i.exec(ua)
   if (samsung) return samsung[1].toUpperCase()
