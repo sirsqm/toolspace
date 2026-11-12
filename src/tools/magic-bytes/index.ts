@@ -22,6 +22,7 @@ import {
   classify,
   detect,
   DUMP_LIMIT,
+  entropy,
   formatBytes,
   formatDump,
   hexDump,
@@ -136,7 +137,8 @@ const tool: Tool = {
       )
       summary.append(
         note(
-          `${formatBytes(bytes.length)} read · ${matches.length} signature${matches.length === 1 ? '' : 's'} matched` +
+          `${formatBytes(bytes.length)} read · ${matches.length} signature${matches.length === 1 ? '' : 's'} matched · ` +
+            `entropy ${entropy(bytes).toFixed(2)} bits/byte` +
             (bom ? ` · byte-order mark: ${bom}` : ''),
         ),
       )

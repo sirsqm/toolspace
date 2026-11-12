@@ -5,6 +5,7 @@ import {
   detect,
   detectOne,
   DUMP_LIMIT,
+  entropy,
   formatBytes,
   formatDump,
   hexDump,
@@ -194,6 +195,35 @@ describe('hexDump and formatDump', () => {
   it('is empty for an empty buffer', () => {
     expect(hexDump(new Uint8Array())).toEqual([])
     expect(formatDump(new Uint8Array())).toBe('')
+  })
+})
+
+describe('entropy', () => {
+  it('is zero for an empty or single-valued buffer', () => {
+    expect(entropy(new Uint8Array())).toBe(0)
+    expect(entropy(new Uint8Array([0x41, 0x41, 0x41, 0x41]))).toBe(0)
+  })
+
+  it('is one bit per byte for two equally likely values', () => {
+    expect(entropy(new Uint8Array([0x00, 0xff]))).toBeCloseTo(1, 10)
+  })
+
+  it('approaches eight bits for a full byte range', () => {
+    const all = new Uint8Array(256).map((_, index) => index)
+    expect(entropy(all)).toBeCloseTo(8, 10)
+  })
+
+  it('scores structured bytes below random bytes', () => {
+    const structured = new TextEncoder().encode('the quick brown fox '.repeat(8))
+    const random = new Uint8Array(256).map((_, index) => (index * 137 + 43) % 256)
+    expect(entropy(structured)).toBeLessThan(entropy(random))
+  })
+
+  it('only samples the first `limit` bytes', () => {
+    const bytes = new Uint8Array(1024)
+    for (let i = 0; i < 16; i++) bytes[i] = i
+    expect(entropy(bytes, 16)).toBeCloseTo(4, 10)
+    expect(entropy(bytes)).toBeLessThan(entropy(bytes, 16))
   })
 })
 

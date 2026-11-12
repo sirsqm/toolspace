@@ -201,6 +201,27 @@ export function formatDump(bytes: Uint8Array, limit = DUMP_LIMIT, width = 16): s
     .join('\n')
 }
 
+/**
+ * Shannon entropy of the leading bytes, in bits per byte (0–8).
+ *
+ * Compressed and encrypted payloads sit near 8; structured formats and plain
+ * text sit well below it, so this is a useful second opinion when no signature
+ * matched. Only the first `limit` bytes are sampled to stay cheap on big pastes.
+ */
+export function entropy(bytes: Uint8Array, limit = 256): number {
+  const sample = bytes.subarray(0, limit)
+  if (sample.length === 0) return 0
+  const counts = new Array<number>(256).fill(0)
+  for (const byte of sample) counts[byte] += 1
+  let bits = 0
+  for (const count of counts) {
+    if (count === 0) continue
+    const p = count / sample.length
+    bits -= p * Math.log2(p)
+  }
+  return bits
+}
+
 /** Human-readable byte count, e.g. "1.5 KB". */
 export function formatBytes(count: number): string {
   if (!Number.isFinite(count) || count <= 0) return '0 B'
