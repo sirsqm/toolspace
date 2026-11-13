@@ -1,0 +1,40 @@
+/* Screen-reader-only live region: the visible cards carry the same answer. */
+.ts-cookie-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The prompt shown before any input, so the tool explains itself on first run. */
+.ts-cookie-empty {
+  padding: 18px 4px;
+  color: var(--muted);
+}
+
+/* A long cookie value must wrap rather than stretch the card off-screen. */
+.ts-cookie-value {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-soft);
+  overflow-wrap: anywhere;
+}
+
+.ts-cookie-value code {
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+/* Tint the headline figure so "3 fails" reads as a problem at a glance. */
+.ts-cookie-stat--danger .ts-k-stat__value { color: var(--danger); }
+.ts-cookie-stat--warn .ts-k-stat__value { color: var(--warn); }
+.ts-cookie-stat--ok .ts-k-stat__value { color: var(--ok); }
+
+@media (max-width: 480px) {
+  .ts-cookie-value { padding: 6px 8px; }
+}

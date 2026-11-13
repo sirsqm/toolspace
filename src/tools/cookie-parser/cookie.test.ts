@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { CookieError, formatAttributes, isExpired, parseCookieHeader, parseSetCookie, parseSetCookieBlock, serialise } from './cookie'
+import {
+  attributeEntries,
+  CookieError,
+  formatAttributes,
+  isExpired,
+  MAX_COOKIE_BYTES,
+  parseCookieHeader,
+  parseSetCookie,
+  parseSetCookieBlock,
+  serialise,
+  summarise,
+} from './cookie'
 
 const NOW = Date.parse('2024-01-01T00:00:00Z')
 
@@ -123,5 +134,114 @@ describe('formatAttributes', () => {
 describe('isExpired', () => {
   it('is false with no expiry information', () => {
     expect(isExpired(parseSetCookie('a=1', NOW).attributes, NOW)).toBe(false)
+  })
+})
+
+describe('input validation issues', () => {
+  it('flags an illegal cookie name as an error', () => {
+    const issues = parseSetCookie('bad name=1', NOW).issues
+    expect(issues.some((i) => i.level === 'error' && i.attribute === 'name')).toBe(true)
+  })
+
+  it('flags an illegal cookie value as a warning', () => {
+    const issues = parseSetCookie('a=has space', NOW).issues
+    expect(issues.some((i) => i.level === 'warn' && i.attribute === 'value')).toBe(true)
+  })
+
+  it('accepts a legal cookie-octet value', () => {
+    const issues = parseSetCookie('a=abc123-_.~', NOW).issues
+    expect(issues.some((i) => i.attribute === 'value')).toBe(false)
+  })
+
+  it('reports an unreadable Expires date', () => {
+    const issues = parseSetCookie('a=1; Expires=not-a-date', NOW).issues
+    expect(issues.some((i) => i.attribute === 'Expires' && i.level === 'warn')).toBe(true)
+  })
+
+  it('reports a non-numeric Max-Age', () => {
+    const issues = parseSetCookie('a=1; Max-Age=soon', NOW).issues
+    expect(issues.some((i) => i.attribute === 'Max-Age' && i.level === 'warn')).toBe(true)
+  })
+
+  it('reports an unknown SameSite value', () => {
+    const cookie = parseSetCookie('a=1; SameSite=Sideways', NOW)
+    expect(cookie.attributes.sameSite).toBe('unknown')
+    expect(cookie.issues.some((i) => i.attribute === 'SameSite' && /Sideways/.test(i.message))).toBe(true)
+  })
+
+  it('warns when a path does not start with a slash', () => {
+    const issues = parseSetCookie('a=1; Path=app', NOW).issues
+    expect(issues.some((i) => i.attribute === 'Path')).toBe(true)
+  })
+
+  it('flags Partitioned without Secure as an error', () => {
+    const issues = parseSetCookie('a=1; Partitioned', NOW).issues
+    expect(issues.some((i) => i.level === 'error' && i.attribute === 'Partitioned')).toBe(true)
+  })
+
+  it('warns when the line exceeds the browser size limit', () => {
+    const big = `a=${'x'.repeat(MAX_COOKIE_BYTES)}`
+    const issues = parseSetCookie(big, NOW).issues
+    expect(issues.some((i) => i.attribute === 'size')).toBe(true)
+    expect(parseSetCookie(`a=${'x'.repeat(MAX_COOKIE_BYTES - 200)}`, NOW).issues.some((i) => i.attribute === 'size')).toBe(false)
+  })
+
+  it('records the byte size of the line', () => {
+    expect(parseSetCookie('a=1; Secure', NOW).size).toBe(11)
+  })
+})
+
+describe('summarise', () => {
+  it('counts issues and picks the worst verdict', () => {
+    const cookies = parseSetCookieBlock('a=1; SameSite=None\nb=1; Secure; HttpOnly; SameSite=Lax', NOW)
+    const summary = summarise(cookies)
+    expect(summary.cookies).toBe(2)
+    expect(summary.errors).toBeGreaterThan(0)
+    expect(summary.verdict).toBe('error')
+    expect(summary.perCookie[0]).toBe('error')
+  })
+
+  it('returns ok when every cookie is clean', () => {
+    const summary = summarise(parseSetCookieBlock('b=1; Secure; HttpOnly; SameSite=Lax', NOW))
+    expect(summary.errors).toBe(0)
+    expect(summary.warnings).toBe(0)
+    expect(summary.verdict).toBe('ok')
+    expect(summary.perCookie).toEqual(['ok'])
+  })
+
+  it('is empty for no cookies', () => {
+    expect(summarise([])).toEqual({ cookies: 0, errors: 0, warnings: 0, infos: 0, verdict: 'ok', perCookie: [] })
+  })
+})
+
+describe('attributeEntries', () => {
+  it('lists set attributes with readable values', () => {
+    const entries = attributeEntries(parseSetCookie('a=1; Domain=example.com; Max-Age=60; Secure', NOW))
+    const byLabel = Object.fromEntries(entries.map((e) => [e.label, e.value]))
+    expect(byLabel.Domain).toBe('example.com')
+    expect(byLabel['Max-Age']).toBe('60 seconds')
+    expect(byLabel.Secure).toBe('yes')
+    expect(byLabel.HttpOnly).toBe('no')
+  })
+
+  it('shows a bare flag attribute as "(flag)"', () => {
+    const entries = attributeEntries(parseSetCookie('a=1; Foo', NOW))
+    expect(entries).toContainEqual({ label: 'foo', value: '(flag)' })
+  })
+})
+
+describe('parseSetCookieBlock', () => {
+  it('ignores blank lines and trims', () => {
+    expect(parseSetCookieBlock('  a=1; Secure  \n\n  b=2  ', NOW).map((c) => c.name)).toEqual(['a', 'b'])
+  })
+})
+
+describe('parseCookieHeader', () => {
+  it('keeps a value that fails to percent-decode verbatim', () => {
+    expect(parseCookieHeader('a=%E0%A4%A')[0].value).toBe('%E0%A4%A')
+  })
+
+  it('treats a bare name as an empty value', () => {
+    expect(parseCookieHeader('flag')).toEqual([{ name: 'flag', value: '' }])
   })
 })
