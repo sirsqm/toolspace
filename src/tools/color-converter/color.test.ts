@@ -10,8 +10,10 @@ import {
   formatRgb,
   formatRgba,
   hslToRgb,
+  NAMED_COLORS,
   parseColor,
   parseColorWithAlpha,
+  parseNamedColor,
   relativeLuminance,
   rgbToHsl,
   toHex,
@@ -81,6 +83,33 @@ describe('parseColorWithAlpha', () => {
     expect(parseColorWithAlpha('rgb(1 2)')).toBeNull()
     expect(parseColorWithAlpha('hsl(1 2)')).toBeNull()
     expect(parseColorWithAlpha('#12345')).toBeNull()
+  })
+
+  it('reads CSS colour keywords, case- and space-insensitively', () => {
+    expect(parseColorWithAlpha('red')).toEqual({ r: 255, g: 0, b: 0, a: 1 })
+    expect(parseColorWithAlpha('  RebeccaPurple ')).toEqual({ r: 102, g: 51, b: 153, a: 1 })
+    expect(parseColorWithAlpha('aliceblue')).toEqual({ r: 240, g: 248, b: 255, a: 1 })
+  })
+
+  it('reads transparent as fully transparent black', () => {
+    expect(parseColorWithAlpha('transparent')).toEqual({ r: 0, g: 0, b: 0, a: 0 })
+  })
+
+  it('rejects keywords it cannot resolve to a fixed colour', () => {
+    expect(parseColorWithAlpha('currentcolor')).toBeNull()
+    expect(parseColorWithAlpha('notacolour')).toBeNull()
+  })
+})
+
+describe('parseNamedColor', () => {
+  it('matches the browser for a sample of names', () => {
+    expect(parseNamedColor('white')).toEqual({ r: 255, g: 255, b: 255, a: 1 })
+    expect(parseNamedColor('black')).toEqual({ r: 0, g: 0, b: 0, a: 1 })
+    expect(parseNamedColor('rebeccapurple')).toEqual({ r: 102, g: 51, b: 153, a: 1 })
+  })
+
+  it('covers all 148 CSS named colours with no duplicates in the table', () => {
+    expect(Object.keys(NAMED_COLORS).length).toBe(148)
   })
 })
 

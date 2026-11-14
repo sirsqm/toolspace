@@ -31,7 +31,7 @@ import {
 
 const DEFAULT = '#4f8cff'
 const DEFAULT_BG = '#0e1116'
-const ACCEPTED = '#4f8cff, rgb(79 140 255), hsl(217 100% 65%) or rgba(79 140 255 / 0.5)'
+const ACCEPTED = '#4f8cff, rgb(79 140 255), hsl(217 100% 65%), rgba(79 140 255 / 0.5) or a name like rebeccapurple'
 
 const tool: Tool = {
   slug: 'color-converter',
