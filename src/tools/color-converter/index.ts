@@ -20,6 +20,7 @@ import {
   formatHex,
   formatHsl,
   formatRgba,
+  paintedHex,
   parseColorWithAlpha,
   rgbToHsl,
   toHex,
@@ -44,20 +45,14 @@ const tool: Tool = {
       value: DEFAULT,
       label: 'Foreground colour',
       text: true,
-      onInput: (value) => {
-        fg.hex.value = value
-        update()
-      },
+      onInput: () => update(),
     })
 
     const bg = colorField({
       value: DEFAULT_BG,
       label: 'Background colour',
       text: true,
-      onInput: (value) => {
-        bg.hex.value = value
-        update()
-      },
+      onInput: () => update(),
     })
 
     // colorField wires the swatch and the text box together but the text box
@@ -187,11 +182,18 @@ const tool: Tool = {
       syncSliders(parsed)
       const hsl = rgbToHsl(parsed)
 
-      rows.replaceChildren(
+      const rowNodes: Node[] = [
         copyRow('HEX', formatHex(parsed)),
         copyRow('RGB', formatRgba(parsed)),
         copyRow('HSL', formatHsl(hsl)),
-      )
+      ]
+      // A translucent colour is measured after it is painted onto the
+      // background, so show that flattened value too rather than leaving the
+      // reader to work out why the ratio is not the one for the raw channels.
+      if (bgRgb && parsed.a < 1) {
+        rowNodes.push(copyRow('Painted on background', paintedHex(parsed, bgRgb)))
+      }
+      rows.replaceChildren(...rowNodes)
 
       if (!bgRgb) {
         error.textContent = `Background is not a colour. Try ${ACCEPTED}.`

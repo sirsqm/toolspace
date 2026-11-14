@@ -155,6 +155,11 @@ export function composite(foreground: Rgba, background: Rgb): Rgb {
   }
 }
 
+/** Opaque hex of a translucent colour after it is painted onto a background. */
+export function paintedHex(foreground: Rgba, background: Rgb): string {
+  return toHex(composite(foreground, background))
+}
+
 export function rgbToHsl({ r, g, b }: Rgb): Hsl {
   const rn = r / 255
   const gn = g / 255

@@ -5,6 +5,7 @@ import {
   contrastVerdict,
   evaluateContrast,
   formatHex,
+  paintedHex,
   formatHsl,
   formatRgb,
   formatRgba,
@@ -192,5 +193,20 @@ describe('alpha-aware contrast', () => {
     const ratio = contrastRatio(flattened, WHITE)
     expect(ratio).toBeLessThan(contrastRatio(BLACK, WHITE))
     expect(ratio).toBeGreaterThan(1)
+  })
+})
+
+describe('paintedHex', () => {
+  it('returns the opaque background when the foreground is fully transparent', () => {
+    expect(paintedHex({ r: 255, g: 0, b: 0, a: 0 }, WHITE)).toBe('#ffffff')
+  })
+
+  it('returns the foreground unchanged when it is opaque', () => {
+    expect(paintedHex({ r: 255, g: 0, b: 0, a: 1 }, WHITE)).toBe('#ff0000')
+  })
+
+  it('mixes the two channels for a translucent foreground', () => {
+    // 50% black over white lands on mid grey, rounded to the nearest byte.
+    expect(paintedHex({ r: 0, g: 0, b: 0, a: 0.5 }, WHITE)).toBe('#808080')
   })
 })
