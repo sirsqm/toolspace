@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  composite,
   contrastRatio,
+  contrastVerdict,
   evaluateContrast,
+  formatHex,
   formatHsl,
   formatRgb,
+  formatRgba,
   hslToRgb,
   parseColor,
+  parseColorWithAlpha,
   relativeLuminance,
   rgbToHsl,
   toHex,
   type Rgb,
+  type Rgba,
 } from './color'
 
 const BLACK: Rgb = { r: 0, g: 0, b: 0 }
@@ -37,6 +43,60 @@ describe('parseColor', () => {
   })
 })
 
+describe('parseColorWithAlpha', () => {
+  it('reads alpha out of eight-digit hex', () => {
+    expect(parseColorWithAlpha('#00000080')).toEqual({ r: 0, g: 0, b: 0, a: 128 / 255 })
+    expect(parseColorWithAlpha('#ffff')).toEqual({ r: 255, g: 255, b: 255, a: 1 })
+  })
+
+  it('reads alpha out of four-digit hex', () => {
+    const parsed = parseColorWithAlpha('#0000')!
+    expect(parsed.r).toBe(0)
+    expect(parsed.a).toBe(0)
+  })
+
+  it('parses rgba() with a comma or a slash', () => {
+    expect(parseColorWithAlpha('rgba(10, 20, 30, 0.5)')).toEqual({ r: 10, g: 20, b: 30, a: 0.5 })
+    expect(parseColorWithAlpha('rgb(10 20 30 / 50%)')).toEqual({ r: 10, g: 20, b: 30, a: 0.5 })
+  })
+
+  it('parses rgb() percentages', () => {
+    expect(parseColorWithAlpha('rgb(100%, 0%, 0%)')).toEqual({ r: 255, g: 0, b: 0, a: 1 })
+  })
+
+  it('parses hsl() into rgb, with and without alpha', () => {
+    expect(parseColorWithAlpha('hsl(0 100% 50%)')).toEqual({ r: 255, g: 0, b: 0, a: 1 })
+    expect(parseColorWithAlpha('hsla(120, 100%, 50%, 0.25)')).toEqual({ r: 0, g: 255, b: 0, a: 0.25 })
+  })
+
+  it('rejects out-of-range channels rather than clamping', () => {
+    expect(parseColorWithAlpha('rgba(0,0,0,2)')).toBeNull()
+    expect(parseColorWithAlpha('rgb(-1 0 0)')).toBeNull()
+    expect(parseColorWithAlpha('hsl(0 200% 50%)')).toBeNull()
+    expect(parseColorWithAlpha('hsl(0 50% 150%)')).toBeNull()
+  })
+
+  it('rejects a wrong argument count', () => {
+    expect(parseColorWithAlpha('rgb(1 2)')).toBeNull()
+    expect(parseColorWithAlpha('hsl(1 2)')).toBeNull()
+    expect(parseColorWithAlpha('#12345')).toBeNull()
+  })
+})
+
+describe('composite', () => {
+  it('leaves an opaque colour unchanged', () => {
+    expect(composite({ r: 10, g: 20, b: 30, a: 1 }, WHITE)).toEqual({ r: 10, g: 20, b: 30 })
+  })
+
+  it('blends a half-transparent black onto white to mid grey', () => {
+    expect(composite({ r: 0, g: 0, b: 0, a: 0.5 }, WHITE)).toEqual({ r: 127.5, g: 127.5, b: 127.5 })
+  })
+
+  it('a fully transparent colour becomes the background', () => {
+    expect(composite({ r: 0, g: 0, b: 0, a: 0 }, WHITE)).toEqual(WHITE)
+  })
+})
+
 describe('conversions', () => {
   it('round-trips rgb -> hsl -> rgb', () => {
     const original: Rgb = { r: 64, g: 128, b: 192 }
@@ -57,9 +117,19 @@ describe('conversions', () => {
     expect(toHex(WHITE)).toBe('#ffffff')
   })
 
+  it('formats hex with alpha only when translucent', () => {
+    expect(formatHex({ r: 0, g: 0, b: 0, a: 1 })).toBe('#000000')
+    expect(formatHex({ r: 0, g: 0, b: 0, a: 0.5 })).toBe('#00000080')
+  })
+
   it('formats rgb and hsl strings', () => {
     expect(formatRgb({ r: 1, g: 2, b: 3 })).toBe('rgb(1 2 3)')
     expect(formatHsl({ h: 180.4, s: 50.6, l: 25.2 })).toBe('hsl(180 51% 25%)')
+  })
+
+  it('formats rgba only when translucent', () => {
+    expect(formatRgba({ r: 1, g: 2, b: 3, a: 1 })).toBe('rgb(1 2 3)')
+    expect(formatRgba({ r: 1, g: 2, b: 3, a: 0.5 })).toBe('rgba(1 2 3 / 0.5)')
   })
 })
 
@@ -98,5 +168,29 @@ describe('contrast', () => {
     const result = evaluateContrast(a, b)
     expect(result.aaNormal).toBe(false)
     expect(result.aaaLarge).toBe(false)
+  })
+
+  it('sits on the AA boundary exactly', () => {
+    // #767676 on white is the canonical 4.54:1 "just passes AA" grey.
+    const grey: Rgb = { r: 0x76, g: 0x76, b: 0x76 }
+    expect(evaluateContrast(grey, WHITE).aaNormal).toBe(true)
+  })
+})
+
+describe('contrastVerdict', () => {
+  it('names the strongest level passed', () => {
+    expect(contrastVerdict(evaluateContrast(BLACK, WHITE))).toMatch(/AAA/)
+    expect(contrastVerdict(evaluateContrast({ r: 0x94, g: 0x94, b: 0x94 }, WHITE))).toMatch(/large text only/)
+    expect(contrastVerdict(evaluateContrast({ r: 128, g: 128, b: 128 }, { r: 130, g: 130, b: 130 }))).toMatch(/Fails/)
+  })
+})
+
+describe('alpha-aware contrast', () => {
+  it('a half-transparent black over white is not the same as solid black', () => {
+    const fg: Rgba = { r: 0, g: 0, b: 0, a: 0.5 }
+    const flattened = composite(fg, WHITE)
+    const ratio = contrastRatio(flattened, WHITE)
+    expect(ratio).toBeLessThan(contrastRatio(BLACK, WHITE))
+    expect(ratio).toBeGreaterThan(1)
   })
 })

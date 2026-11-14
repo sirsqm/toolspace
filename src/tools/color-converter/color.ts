@@ -1,12 +1,23 @@
 /**
  * Colour conversion and WCAG contrast, implemented from scratch so there is
  * no dependency to load and every value is testable in isolation.
+ *
+ * Two colour forms are supported end to end: the opaque `Rgb` form and an
+ * alpha-carrying `Rgba` form. The alpha-aware path matters for contrast —
+ * `rgba(0,0,0,0.5)` over white is a different pair to `#000` over white, so
+ * reporting the same ratio for both would be wrong. Alpha is composited onto
+ * the background before the ratio is measured, exactly as a browser paints it.
  */
 
 export interface Rgb {
   r: number
   g: number
   b: number
+}
+
+export interface Rgba extends Rgb {
+  /** 0 (transparent) to 1 (opaque). */
+  a: number
 }
 
 export interface Hsl {
@@ -24,31 +35,124 @@ export function toHex({ r, g, b }: Rgb): string {
   return `#${part(r)}${part(g)}${part(b)}`
 }
 
-/** Parse `#rgb`, `#rrggbb`, `rgb(r,g,b)` or a bare hex string. */
-export function parseColor(input: string): Rgb | null {
+/**
+ * Hex for an `Rgba`: the eight-digit form only when the colour is translucent,
+ * so an opaque colour still reads as the familiar `#rrggbb`.
+ */
+export function formatHex({ r, g, b, a }: Rgba): string {
+  const alpha = clamp(a, 0, 1)
+  const base = toHex({ r, g, b })
+  if (alpha >= 1) return base
+  return `${base}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
+}
+
+/** Parse a 0–255 channel that may be given as a percentage. */
+function parseChannel(token: string): number | null {
+  if (token.endsWith('%')) {
+    const pct = Number(token.slice(0, -1))
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return null
+    return Math.round((pct / 100) * 255)
+  }
+  const value = Number(token)
+  if (!Number.isFinite(value) || value < 0 || value > 255) return null
+  return Math.round(value)
+}
+
+/** Parse a 0–1 alpha that may be given as a percentage. */
+function parseAlpha(token: string): number | null {
+  const value = token.endsWith('%') ? Number(token.slice(0, -1)) / 100 : Number(token)
+  if (!Number.isFinite(value) || value < 0 || value > 1) return null
+  return value
+}
+
+/** Parse an angle, tolerating a trailing `deg`. */
+function parseAngle(token: string): number | null {
+  const value = token.endsWith('deg') ? Number(token.slice(0, -3)) : Number(token)
+  return Number.isFinite(value) ? value : null
+}
+
+/** Parse a 0–100 percentage; a bare number is accepted for convenience. */
+function parsePercent(token: string): number | null {
+  const value = token.endsWith('%') ? Number(token.slice(0, -1)) : Number(token)
+  if (!Number.isFinite(value) || value < 0 || value > 100) return null
+  return value
+}
+
+const HEX = /^#?([0-9a-f]{3,8})$/i
+const FUNCTIONAL = /^(rgba?|hsla?)\(([^)]*)\)$/i
+
+/**
+ * Parse every common CSS colour syntax into an `Rgba`, or `null`.
+ *
+ * Accepts `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (with or without the hash),
+ * `rgb()` / `rgba()` with comma or space separators and optional percentages,
+ * and `hsl()` / `hsla()` with a slash alpha. Out-of-range channels are
+ * rejected rather than clamped, so a typo surfaces instead of silently
+ * producing the wrong colour.
+ */
+export function parseColorWithAlpha(input: string): Rgba | null {
   const value = input.trim().toLowerCase()
+  if (!value) return null
 
-  const shorthand = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(value)
-  if (shorthand) {
-    return {
-      r: parseInt(shorthand[1] + shorthand[1], 16),
-      g: parseInt(shorthand[2] + shorthand[2], 16),
-      b: parseInt(shorthand[3] + shorthand[3], 16),
+  const hex = HEX.exec(value)
+  if (hex) {
+    const digits = hex[1]
+    if (digits.length === 3 || digits.length === 4) {
+      const parts = [...digits].map((digit) => parseInt(digit + digit, 16))
+      return { r: parts[0], g: parts[1], b: parts[2], a: digits.length === 4 ? parts[3] / 255 : 1 }
     }
+    if (digits.length === 6 || digits.length === 8) {
+      return {
+        r: parseInt(digits.slice(0, 2), 16),
+        g: parseInt(digits.slice(2, 4), 16),
+        b: parseInt(digits.slice(4, 6), 16),
+        a: digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1,
+      }
+    }
+    return null
   }
 
-  const long = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/.exec(value)
-  if (long) {
-    return { r: parseInt(long[1], 16), g: parseInt(long[2], 16), b: parseInt(long[3], 16) }
+  const fn = FUNCTIONAL.exec(value)
+  if (!fn) return null
+  const parts = fn[2].replace(/[/,]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
+  if (alpha === null) return null
+
+  if (fn[1].startsWith('rgb')) {
+    if (parts.length !== 3 && parts.length !== 4) return null
+    const r = parseChannel(parts[0])
+    const g = parseChannel(parts[1])
+    const b = parseChannel(parts[2])
+    if (r === null || g === null || b === null) return null
+    return { r, g, b, a: alpha }
   }
 
-  const functional = /^rgba?\(\s*(\d+)\s*[, ]\s*(\d+)\s*[, ]\s*(\d+)/.exec(value)
-  if (functional) {
-    const [r, g, b] = [functional[1], functional[2], functional[3]].map(Number)
-    if ([r, g, b].every((n) => n >= 0 && n <= 255)) return { r, g, b }
-  }
+  if (parts.length !== 3 && parts.length !== 4) return null
+  const h = parseAngle(parts[0])
+  const s = parsePercent(parts[1])
+  const l = parsePercent(parts[2])
+  if (h === null || s === null || l === null) return null
+  const { r, g, b } = hslToRgb({ h, s, l })
+  return { r, g, b, a: alpha }
+}
 
-  return null
+/** Parse `#rgb`, `#rrggbb`, `rgb(…)`, `hsl(…)` or a bare hex string, ignoring alpha. */
+export function parseColor(input: string): Rgb | null {
+  const rgba = parseColorWithAlpha(input)
+  return rgba ? { r: rgba.r, g: rgba.g, b: rgba.b } : null
+}
+
+/**
+ * Flatten a translucent foreground onto an opaque background, as the browser
+ * would paint it. An opaque foreground comes back unchanged.
+ */
+export function composite(foreground: Rgba, background: Rgb): Rgb {
+  const alpha = clamp(foreground.a, 0, 1)
+  return {
+    r: foreground.r * alpha + background.r * (1 - alpha),
+    g: foreground.g * alpha + background.g * (1 - alpha),
+    b: foreground.b * alpha + background.b * (1 - alpha),
+  }
 }
 
 export function rgbToHsl({ r, g, b }: Rgb): Hsl {
@@ -131,10 +235,24 @@ export function evaluateContrast(foreground: Rgb, background: Rgb): ContrastResu
   }
 }
 
+/** One plain sentence naming the strongest level the pair actually passes. */
+export function contrastVerdict(result: ContrastResult): string {
+  if (result.aaaNormal) return 'Passes AAA at every text size.'
+  if (result.aaNormal) return 'Passes AA for body text, and AAA for large text.'
+  if (result.aaLarge) return 'Passes AA for large text only (18pt, or 14pt bold).'
+  return 'Fails every WCAG level — raise the contrast.'
+}
+
 export function formatHsl({ h, s, l }: Hsl): string {
   return `hsl(${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%)`
 }
 
 export function formatRgb({ r, g, b }: Rgb): string {
   return `rgb(${r} ${g} ${b})`
+}
+
+/** `rgb(r g b)` when opaque, `rgba(r g b / a)` when translucent. */
+export function formatRgba({ r, g, b, a }: Rgba): string {
+  const alpha = Number(clamp(a, 0, 1).toFixed(3))
+  return alpha >= 1 ? `rgb(${r} ${g} ${b})` : `rgba(${r} ${g} ${b} / ${alpha})`
 }

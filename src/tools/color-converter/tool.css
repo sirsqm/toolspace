@@ -1,0 +1,88 @@
+/* The tool ships its own layout: the old markup referenced eight classes that
+   were never defined anywhere, so it rendered as unstyled stacked blocks. */
+
+.ts-color-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* Preview chip showing the current colour over its contrast background. The
+   inline background/border are set from script; these are only the fallback. */
+.ts-color-swatch {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: transparent;
+}
+
+.ts-color-top__field { flex: 1 1 220px; min-width: 0; }
+
+.ts-color-sliders { display: flex; flex-direction: column; gap: 10px; }
+
+.ts-color-sample {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 16px;
+  /* Inline colour/background are set from script; keep a legible default. */
+  color: var(--fg);
+  background: var(--bg-input);
+}
+
+.ts-color-verdict { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); }
+.ts-color-verdict.is-ok { color: var(--ok); }
+.ts-color-verdict.is-warn { color: var(--warn); }
+.ts-color-verdict.is-danger { color: var(--danger); }
+
+.ts-color-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.ts-color-check {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+
+.ts-color-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ts-color-dot--pass { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.ts-color-dot--fail { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, transparent); }
+
+.ts-color-check__state { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+/* Screen-reader-only live region; the visible panels carry the same answer. */
+.ts-color-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
